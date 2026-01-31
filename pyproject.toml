@@ -24,6 +24,10 @@ dev = [
     "mypy>=1.0.0",
     "ruff>=0.1.0",
 ]
+ci = [
+    "pytest>=7.0.0",
+    "ruff>=0.1.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
