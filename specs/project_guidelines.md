@@ -3,7 +3,7 @@
 ## Metadata
 * **Course:** CME 241 - Stochastic Control and Reinforcement Learning
 * **Instructor:** Prof. Ashwin Rao
-* **Project Topic:** Personal Finance Optimization
+* **Project Topic:** Pricing Discount Optimization
 * **Total Grade Weight:** 50%
 * **Goal:** Maximize aggregated Utility of Consumption using RL.
 
@@ -11,13 +11,13 @@
 
 ## 1. Project Overview & Objective
 
-**Broad Topic:** Personal Finance Optimization.
-The goal is to make a sequence of optimal decisions regarding consumption (optional/selective products/services) amidst uncertainty (income, obligations, life events).
+**Broad Topic:** Pricing Discount Optimization.
+The goal is to make a sequence of optimal decisions about when to offer users discounts and how large those discounts should be.
 
 **Core Problem:**
-* **Inputs:** Income (salary, bonuses, equity), Investment returns, Fixed Obligations (rent, mortgage).
-* **Decisions:** Tactical payments for optional satisfaction (vacations, luxury goods, gifts).
-* **Optimization Target:** Maximize **Utility of Consumption** (Ref: Textbook Chapter 7).
+* **Inputs:** User context and market signals (seasonality, price sensitivity, campaign constraints).
+* **Decisions:** Timing and magnitude of discount offers to users.
+* **Optimization Target:** Maximize long-run revenue and user engagement utility.
 * **Methodology:** Stochastic Control and Reinforcement Learning (RL).
 
 **Success Criteria:**
@@ -76,11 +76,11 @@ The project is divided into three distinct phases, moving from definition to sim
 ### Class Structure
 The project relies on a flexible `MarkovDecisionProcess` class capable of handling variable parameters to support the three versions of complexity.
 
-* **Input:** Problem parameters (State space size, Action space complexity, Transition probabilities).
+* **Input:** Problem parameters (State space size, Action space complexity, transition probabilities).
 * **Methods:** Should support generation of sampling traces for the RL environment.
 
 ### Optimization Goals
-* **Utility Function:** Must be defined according to Chapter 7 of the textbook.
+* **Utility Function:** Must reflect the trade-off between discount cost and downstream conversion/retention value.
 * **State Space:** Must be manageable for Phase 2 (DP) but scalable for Phase 3 (RL).
 
 ### Tools & Libraries

@@ -20,7 +20,7 @@ This project formulates discount pricing as a Markov Decision Process (MDP) and 
 
 ## Installation
 
-**Requirements:** Python 3.10+
+**Requirements:** Python 3.12+
 
 ```bash
 # Clone the repository
@@ -67,6 +67,49 @@ python scripts/solve_dp.py
 ```bash
 python scripts/evaluate.py
 ```
+
+### Make Targets (Inputs & Outputs)
+- `make load`
+  - **Inputs:** `.env` (optional), `DATASET_ID` (optional)
+  - **Outputs:** Raw CSVs in `data/raw/`
+  - **Notes:** Downloads the dataset via `scripts/download_dataset.py`.
+- `make preprocess`
+  - **Overview:** Standardizes raw tables, builds per-household sequences with
+    coupon flags, generates transaction-level modeling features, and estimates
+    elasticity parameters for the simulator.
+  - **Inputs:** Raw CSVs in `data/raw/`
+  - **Outputs:**
+    - Processed tables in `data/processed/`
+    - `data/processed/training_sequences.(parquet|csv)`
+    - `data/processed/training_features.(parquet|csv)`
+    - `data/processed/elasticity_params.json`
+  - **Notes:** Uses `scripts/preprocess_data.py`. See `--feature-sets`,
+    `--feature-columns`, `--drop-feature-columns`, `--sequence-check`,
+    `--category`, `--category-column`, `--elasticity-path`.
+- `make test`
+  - **Inputs:** `tests/`, `src/`
+  - **Outputs:** Pytest results in terminal.
+- `make lint`
+  - **Inputs:** `src/`, `tests/`
+  - **Outputs:** Ruff and mypy results in terminal.
+
+### Table Schemas (Preprocessed Outputs)
+#### Training Sequences (`data/processed/training_sequences.*`)
+- **Base columns:** All standardized columns from `transaction_data`.
+- **Derived identifiers:** `transaction_id`, `sequence_index`
+- **Coupon availability:** `coupon_available`, `coupon_upc`, `campaign`
+- **Coupon usage:** `coupon_used`, `coupon_upc_used`
+
+#### Training Features (`data/processed/training_features.*`)
+- **Base columns:** All standardized columns from `transaction_data`.
+- **Derived numeric features:** `total_discount`, `price_per_unit`,
+  `discount_rate`, `promo_flag`
+- **Product attributes (join):** `department`, `commodity_desc`, `brand`
+- **Household attributes (join):** `age_desc`, `income_desc`, `homeowner_desc`
+
+#### Elasticity Parameters (`data/processed/elasticity_params.json`)
+- **Values:** `alpha`, `beta`, `intercept`, `memory_coef`, `mse`, `n_samples`
+- **Metadata:** `category`, `category_column`
 
 ## Development
 

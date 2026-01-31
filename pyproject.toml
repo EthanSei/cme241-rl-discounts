@@ -7,7 +7,7 @@ name = "discount-engine"
 version = "0.1.0"
 description = "Reinforcement Learning for Discount Pricing Optimization"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 license = {text = "MIT"}
 dependencies = [
     "gymnasium>=0.29.0",
@@ -15,6 +15,9 @@ dependencies = [
     "pandas>=2.0.0",
     "matplotlib>=3.7.0",
     "pyyaml>=6.0",
+    "kagglehub>=0.4.1",
+    "pyarrow>=14.0.0",
+    "tqdm>=4.66.0",
 ]
 
 [project.optional-dependencies]
@@ -37,12 +40,12 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.12"
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
 
 [tool.ruff]
 line-length = 88
-target-version = "py310"
+target-version = "py312"
 
