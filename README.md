@@ -1,6 +1,6 @@
 # Discount Engine
 
-![CI](https://github.com/your-username/cme241-rl-discounts/actions/workflows/python-app.yml/badge.svg)
+![CI](https://github.com/EthanSei/cme241-rl-discounts/actions/workflows/python-app.yml/badge.svg)
 
 **Reinforcement Learning for Discount Pricing Optimization**
 
