@@ -1,5 +1,7 @@
 # Discount Engine
 
+![CI](https://github.com/your-username/cme241-rl-discounts/actions/workflows/python-app.yml/badge.svg)
+
 **Reinforcement Learning for Discount Pricing Optimization**
 
 A Stanford CME 241 (Winter 2026) project applying stochastic control and reinforcement learning to optimize discount pricing strategies for personal finance decisions.
