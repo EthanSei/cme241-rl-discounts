@@ -1,5 +1,30 @@
 # Project Memory & ADRs
 
+## 2026-01-31: Phase 1.2 Complete
+
+### SimulatedCustomer Implementation
+Implemented `SimulatedCustomer` class modeling discount addiction behavior:
+- **Reference price memory decay:** Uses exponential smoothing with α=0.8
+- **Purchase probability:** Decays exponentially when price > reference
+- **Calibrated beta:** 2.0 for probability model (distinct from elasticity beta)
+
+Key insight: The elasticity β=0.045 from Phase 1.1 measures quantity sensitivity
+to price. For the probability model, we need a separate β=2.0 calibrated to
+satisfy the 20% probability drop criterion after 5 discounted purchases.
+
+### Validation Results
+Ran `make sims` with 500 customers:
+- After 5 purchases at 20% discount, avg probability drops 23.6%
+- Fresh customers maintain baseline 50% probability at full price
+- Results saved to `data/processed/simulation_validation.json`
+
+### Files Added/Modified
+- `src/discount_engine/simulators/customer.py` - SimulatedCustomer class
+- `tests/unit/test_customer.py` - 10 TDD tests
+- `scripts/run_simulation.py` - Validation script
+
+---
+
 ## 2026-01-31: Phase 1.1 Complete
 
 ### Elasticity Parameters (SOFT DRINKS)
@@ -18,9 +43,10 @@ Parameters saved to `data/processed/elasticity_params.json`.
 - Training features generated with demographic joins
 
 ### Test Coverage
-11 tests covering:
+21 tests total covering:
 - Data ingestion and loading (3)
 - Category filtering (1)
 - Sequence building and validation (3)
 - Elasticity estimation (1)
 - Feature engineering (3)
+- Customer simulation (10)

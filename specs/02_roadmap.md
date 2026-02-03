@@ -13,8 +13,33 @@ This document outlines the strategic phases for building the Reinforcement Learn
 - [x] **User Sequencing:** Aggregate raw logs into `UserSequence` objects (Time-series of Price Paid vs. Discount).
 - [x] **Elasticity Modeling:** Fit a simple demand curve to the real data to extract `beta` (price sensitivity) and `alpha` (memory decay) parameters.
 
-### 1.2 The Simulator (The "World")
-- [ ] **Simulated User:** Implement `src/discount_engine/simulators/customer.py` using the parameters derived from 1.1.
+#### 1.1.1 Alpha Estimation Experiments ✅
+- [x] Baseline EWMA memory model
+- [x] Discount shock (deviation from mean)
+- [x] Varying reference_days
+- [x] Alternative memory models (fixed window, linear decay, binary, cumulative)
+- [x] Lagged features comparison
+
+**Finding:** Memory features provide <3% MSE improvement. Weak signal.
+
+#### 1.1.2 Feature Engineering ✅
+- [x] **Household effects:** Purchase frequency, avg spend (+16% improvement)
+- [x] **Product effects:** Price vs avg, typical quantity (+8% improvement)
+- [x] **Temporal effects:** Day of week, purchase number (+1% improvement)
+- [x] **Combined:** All features together (+21% improvement)
+
+**Finding:** Household features dominate. Include in simulator.
+
+#### 1.1.3 Model Structure Experiments ✅
+- [x] **Customer segmentation:** K-means + per-segment OLS (+3-4%)
+- [x] **Gradient Boosting:** Full GBM (+15-20%, but 100x slower)
+- [x] **Neural Network (MLP):** Various architectures (+5-10%, 10x slower)
+- [x] **Polynomial OLS:** Second-order terms (+3-4%, same speed)
+
+**Finding:** Non-linear models improve accuracy but hurt speed. OLS + features + polynomial terms is best tradeoff.
+
+### 1.2 The Simulator (The "World") ← NEXT
+- [ ] **Simulated User:** Implement `src/discount_engine/simulators/customer.py` using parameters from 1.1.
 - [ ] **Validation:** Verify that the Simulated User "addicts" correctly (i.e., purchase probability drops after repeated discounts are removed).
 
 ### 1.3 Environment Setup (The "Interface")
