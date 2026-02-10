@@ -1,72 +1,92 @@
 # Repo Map
 ## File Tree
-```
+```text
 cme241-rl-discounts
-├── .github
-│   └── workflows
+├── .github/
+│   └── workflows/
 │       └── python-app.yml
-├── configs
-│   ├── agent_config.yaml
-│   └── env_config.yaml
-├── data
-│   ├── processed
-│   └── raw
-├── notebooks
+├── configs/
+│   ├── data/
+│   │   └── calibration.yaml
+│   ├── dp/
+│   │   └── solver.yaml
+│   └── rl/
+│       ├── agent.yaml
+│       └── env.yaml
+├── data/
+│   ├── raw/
+│   └── processed/
+├── notebooks/
 │   ├── 01_data_analysis.ipynb
-│   └── 02_dp_solution.ipynb
-├── scripts
-│   ├── download_dataset.py
-│   ├── evaluate.py
-│   ├── preprocess_data.py
-│   ├── solve_dp.py
-│   └── train_rl.py
-├── specs
+│   ├── 02_dp_solution.ipynb
+│   └── 03_rl_results.ipynb
+├── scripts/
+│   ├── data/
+│   │   ├── calibrate_mdp_params.py
+│   │   ├── download_dataset.py
+│   │   └── preprocess_data.py
+│   ├── dp_evaluate.py
+│   ├── dp_solve.py
+│   ├── dp_validate.py
+│   ├── rl_evaluate.py
+│   ├── rl_run_simulation.py
+│   └── rl_train.py
+├── specs/
 │   ├── 00_repo_map.md
 │   ├── 01_project_core.md
 │   ├── 02_roadmap.md
 │   ├── 03_memory.md
+│   ├── 04_alpha_experiments.md
+│   ├── active_brief.md
 │   ├── project_guidelines.md
-│   └── active_brief.md
-├── src
-│   ├── discount_engine
-│   │   ├── __init__.py
-│   │   ├── agents
-│   │   │   ├── __init__.py
-│   │   │   ├── base.py
-│   │   │   ├── dp_agent.py
-│   │   │   └── q_learning.py
-│   │   ├── envs
-│   │   │   ├── __init__.py
-│   │   │   ├── market_env.py
-│   │   │   └── wrappers.py
-│   │   ├── simulators
-│   │   │   ├── __init__.py
-│   │   │   ├── customer.py
-│   │   │   └── demand.py
-│   │   └── utils
-│   │       ├── __init__.py
-│   │       ├── data_loader.py
-│   │       ├── elasticity.py
-│   │       ├── feature_engineering.py
-│   │       ├── plotting.py
-│   │       └── sequence_builder.py
-├── tests
-│   ├── meta
-│   │   ├── __init__.py
-│   │   └── test_structure.py
-│   ├── unit
-│   │   ├── __init__.py
-│   │   ├── test_agent.py
-│   │   ├── test_data_loader.py
-│   │   ├── test_elasticity.py
-│   │   ├── test_env.py
-│   │   ├── test_feature_engineering.py
-│   │   └── test_sequence_builder.py
+│   └── repo_map_v2.md
+├── src/
+│   └── discount_engine/
+│       ├── __init__.py
+│       ├── core/
+│       │   ├── __init__.py
+│       │   ├── calibration.py
+│       │   ├── demand.py
+│       │   ├── dynamics.py
+│       │   ├── params.py
+│       │   └── types.py
+│       ├── dp/
+│       │   ├── __init__.py
+│       │   ├── discretization.py
+│       │   ├── policy.py
+│       │   ├── transitions.py
+│       │   └── value_iteration.py
+│       ├── rl/
+│       │   ├── __init__.py
+│       │   ├── baselines.py
+│       │   ├── env.py
+│       │   ├── evaluate.py
+│       │   ├── rollout.py
+│       │   └── train.py
+│       └── utils/
+│           ├── __init__.py
+│           ├── io.py
+│           ├── plotting.py
+│           └── seeding.py
+├── tests/
 │   ├── __init__.py
-│   └── conftest.py
-├── .cursorrules
-├── .env
-├── .gitignore
+│   ├── conftest.py
+│   ├── core/
+│   │   ├── test_demand.py
+│   │   └── test_dynamics.py
+│   ├── dp/
+│   │   ├── test_dp_bellman_backup.py
+│   │   ├── test_dp_policy_sanity.py
+│   │   ├── test_dp_regression.py
+│   │   ├── test_dp_script_e2e.py
+│   │   ├── test_dp_terminal.py
+│   │   ├── test_dp_transitions.py
+│   │   └── test_dp_value_iteration.py
+│   ├── fixtures/
+│   │   └── dp_params_small.yaml
+│   └── rl/
+│       ├── test_rl_env.py
+│       └── test_rl_rollout.py
 ├── Makefile
 ├── pyproject.toml
 └── README.md
@@ -74,35 +94,36 @@ cme241-rl-discounts
 
 ## Python Source Files
 - `src/discount_engine/__init__.py`
-- `src/discount_engine/agents/__init__.py`
-- `src/discount_engine/agents/base.py`
-- `src/discount_engine/agents/dp_agent.py`
-- `src/discount_engine/agents/q_learning.py`
-- `src/discount_engine/envs/__init__.py`
-- `src/discount_engine/envs/market_env.py`
-- `src/discount_engine/envs/wrappers.py`
-- `src/discount_engine/simulators/__init__.py`
-- `src/discount_engine/simulators/customer.py`
-- `src/discount_engine/simulators/demand.py`
+- `src/discount_engine/core/__init__.py`
+- `src/discount_engine/core/calibration.py`
+- `src/discount_engine/core/demand.py`
+- `src/discount_engine/core/dynamics.py`
+- `src/discount_engine/core/params.py`
+- `src/discount_engine/core/types.py`
+- `src/discount_engine/dp/__init__.py`
+- `src/discount_engine/dp/discretization.py`
+- `src/discount_engine/dp/policy.py`
+- `src/discount_engine/dp/transitions.py`
+- `src/discount_engine/dp/value_iteration.py`
+- `src/discount_engine/rl/__init__.py`
+- `src/discount_engine/rl/baselines.py`
+- `src/discount_engine/rl/env.py`
+- `src/discount_engine/rl/evaluate.py`
+- `src/discount_engine/rl/rollout.py`
+- `src/discount_engine/rl/train.py`
 - `src/discount_engine/utils/__init__.py`
-- `src/discount_engine/utils/data_loader.py`
-- `src/discount_engine/utils/elasticity.py`
-- `src/discount_engine/utils/feature_engineering.py`
+- `src/discount_engine/utils/io.py`
 - `src/discount_engine/utils/plotting.py`
-- `src/discount_engine/utils/sequence_builder.py`
+- `src/discount_engine/utils/seeding.py`
 
 ## Component Interaction
-- `simulators` must NEVER import `envs` or `agents`.
+- `core` must not import `dp` or `rl`.
+- `dp` and `rl` may import from `core`.
+- `scripts` should call package APIs in `src/`; avoid business logic in script files.
 
-# Repository Map & Standards
-
-## 3. Coding Standards (The Hygiene Rules)
-* **Type Hinting:** Strict typing required for all function arguments and return values. Use `typing.Optional` for non-guaranteed returns.
-* **Docstrings:** All public classes and methods must use **Google Style** docstrings.
-* **Path Handling:** ALWAYS use `pathlib.Path`, NEVER use `os.path.join`.
-* **Imports:**
-    * Absolute imports only (e.g., `from pricing_engine.utils import ...`).
-    * Group standard library first, then third-party (numpy/gym), then local imports.
-* **Testing:**
-    * No hardcoded numbers in tests; use constants.
-    * Use `pytest.fixture` for setup logic.
+## Coding Standards
+- **Type Hinting:** Strict typing for public APIs.
+- **Docstrings:** Use concise Google-style docstrings on public classes/functions.
+- **Path Handling:** Use `pathlib.Path` over `os.path`.
+- **Imports:** Absolute imports, grouped as stdlib, third-party, local.
+- **Testing:** Use deterministic fixtures for numerical tests and explicit tolerances.

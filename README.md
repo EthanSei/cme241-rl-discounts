@@ -35,17 +35,17 @@ pip install -e ".[dev]"
 
 ```
 cme241-rl-discounts/
-├── configs/              # Hyperparameter configs (YAML)
+├── configs/              # Namespaced configs (data/dp/rl)
 ├── data/                 # Data storage (gitignored)
 ├── notebooks/            # Jupyter notebooks for analysis
 ├── scripts/              # Executable entry points
 ├── specs/                # Architecture documentation
 ├── src/discount_engine/  # Main package
-│   ├── agents/           # DP and RL agent implementations
-│   ├── envs/             # Gymnasium environment
-│   ├── simulators/       # Customer/demand models
+│   ├── core/             # Shared MDP logic
+│   ├── dp/               # Version C (DP) components
+│   ├── rl/               # Version B (RL) components
 │   └── utils/            # Shared utilities
-└── tests/                # Unit and meta tests
+└── tests/                # Core/DP/RL test suites
 ```
 
 ## Usage
@@ -53,39 +53,32 @@ cme241-rl-discounts/
 ### Training an RL Agent
 
 ```bash
-python scripts/train_rl.py
+python scripts/rl_train.py
 ```
 
 ### Running the DP Solver
 
 ```bash
-python scripts/solve_dp.py
+python scripts/dp_solve.py
 ```
 
 ### Evaluating a Trained Model
 
 ```bash
-python scripts/evaluate.py
+python scripts/rl_evaluate.py
 ```
 
 ### Make Targets (Inputs & Outputs)
 - `make load`
   - **Inputs:** `.env` (optional), `DATASET_ID` (optional)
   - **Outputs:** Raw CSVs in `data/raw/`
-  - **Notes:** Downloads the dataset via `scripts/download_dataset.py`.
+  - **Notes:** Downloads the dataset via `scripts/data/download_dataset.py`.
 - `make preprocess`
-  - **Overview:** Standardizes raw tables, builds per-household sequences with
-    coupon flags, generates transaction-level modeling features, and estimates
-    elasticity parameters for the simulator.
+  - **Overview:** Standardizes raw tables and writes cleaned artifacts to
+    `data/processed/`.
   - **Inputs:** Raw CSVs in `data/raw/`
-  - **Outputs:**
-    - Processed tables in `data/processed/`
-    - `data/processed/training_sequences.(parquet|csv)`
-    - `data/processed/training_features.(parquet|csv)`
-    - `data/processed/elasticity_params.json`
-  - **Notes:** Uses `scripts/preprocess_data.py`. See `--feature-sets`,
-    `--feature-columns`, `--drop-feature-columns`, `--sequence-check`,
-    `--category`, `--category-column`, `--elasticity-path`.
+  - **Outputs:** Processed tables in `data/processed/`
+  - **Notes:** Uses `scripts/data/preprocess_data.py`.
 - `make test`
   - **Inputs:** `tests/`, `src/`
   - **Outputs:** Pytest results in terminal.
@@ -93,23 +86,9 @@ python scripts/evaluate.py
   - **Inputs:** `src/`, `tests/`
   - **Outputs:** Ruff and mypy results in terminal.
 
-### Table Schemas (Preprocessed Outputs)
-#### Training Sequences (`data/processed/training_sequences.*`)
-- **Base columns:** All standardized columns from `transaction_data`.
-- **Derived identifiers:** `transaction_id`, `sequence_index`
-- **Coupon availability:** `coupon_available`, `coupon_upc`, `campaign`
-- **Coupon usage:** `coupon_used`, `coupon_upc_used`
-
-#### Training Features (`data/processed/training_features.*`)
-- **Base columns:** All standardized columns from `transaction_data`.
-- **Derived numeric features:** `total_discount`, `price_per_unit`,
-  `discount_rate`, `promo_flag`
-- **Product attributes (join):** `department`, `commodity_desc`, `brand`
-- **Household attributes (join):** `age_desc`, `income_desc`, `homeowner_desc`
-
-#### Elasticity Parameters (`data/processed/elasticity_params.json`)
-- **Values:** `alpha`, `beta`, `intercept`, `memory_coef`, `mse`, `n_samples`
-- **Metadata:** `category`, `category_column`
+### Parameter Artifact
+Calibrated parameter artifact target path:
+- `data/processed/mdp_params.yaml`
 
 ## Development
 
@@ -133,8 +112,10 @@ mypy src/
 
 Environment and agent hyperparameters are managed via YAML files in `configs/`:
 
-- `env_config.yaml` — Environment parameters (max steps, base price, elasticity)
-- `agent_config.yaml` — Agent parameters (learning rate, gamma, epsilon)
+- `configs/data/calibration.yaml` — Dataset calibration inputs/outputs
+- `configs/dp/solver.yaml` — DP solver parameters
+- `configs/rl/env.yaml` — RL environment parameters
+- `configs/rl/agent.yaml` — RL agent parameters
 
 ## License
 

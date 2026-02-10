@@ -1,4 +1,4 @@
-.PHONY: install test lint clean help load preprocess
+.PHONY: install test lint clean help load preprocess sims
 
 help:
 	@echo "Available commands:"
@@ -8,6 +8,7 @@ help:
 	@echo "  make clean      - Remove build artifacts"
 	@echo "  make load       - Download Kaggle dataset to data/raw/"
 	@echo "  make preprocess - Build processed data, sequences, features"
+	@echo "  make sims       - Run customer simulation validation"
 
 install:
 	pip install -e ".[dev]"
@@ -21,12 +22,13 @@ lint:
 
 load:
 	@if [ -f .env ]; then set -a; . ./.env; set +a; fi; \
-	python scripts/download_dataset.py $(if $(DATASET_ID),--dataset-id $(DATASET_ID),)
+	python scripts/data/download_dataset.py $(if $(DATASET_ID),--dataset-id $(DATASET_ID),)
 
 preprocess:
-	python scripts/preprocess_data.py $(if $(PROCESSED_FORMAT),--format $(PROCESSED_FORMAT),) \
-		$(if $(SEQUENCES_PATH),--sequences-path $(SEQUENCES_PATH),) \
-		$(if $(FEATURES_PATH),--features-path $(FEATURES_PATH),)
+	python scripts/data/preprocess_data.py $(if $(PROCESSED_FORMAT),--format $(PROCESSED_FORMAT),)
+
+sims:
+	python scripts/rl_run_simulation.py
 
 clean:
 	rm -rf build/
@@ -36,4 +38,3 @@ clean:
 	rm -rf .mypy_cache/
 	rm -rf .ruff_cache/
 	find . -type d -name __pycache__ -exec rm -rf {} +
-

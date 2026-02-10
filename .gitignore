@@ -1,5 +1,8 @@
 # Custom
 .cursorrules
+.cursor/
+specs/
+tools/
 
 # Data files (download via scripts/download_dataset.py)
 data/raw/

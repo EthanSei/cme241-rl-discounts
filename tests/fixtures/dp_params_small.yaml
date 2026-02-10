@@ -1,0 +1,4 @@
+# Deterministic tiny fixture for DP tests (v2 scaffold)
+N: 2
+delta: 0.30
+gamma: 0.99

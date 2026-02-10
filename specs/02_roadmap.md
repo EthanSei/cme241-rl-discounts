@@ -1,93 +1,184 @@
-# Project Roadmap: Discount Addiction RL
+# Project Roadmap: Item-Level Discount Targeting
 
-This document outlines the strategic phases for building the Reinforcement Learning Pricing Engine. The project is divided into three distinct phases aligning with the CME 241 course structure, evolving from a theoretical DP model to a production-grade RL agent.
+This roadmap aligns implementation with the finalized Phase 1 proposal and CME 241 project guidelines.
 
----
+## Scope Lock
+- Objective: maximize discounted long-run expected revenue while balancing churn risk, cannibalization, and discount addiction.
+- Discount depth is fixed at `delta`; actions choose one product category to promote (or no promotion).
+- Core live state is `(c_t, m_t, l_t)` with terminal churn state `s_empty`.
+- Phase 2 target is Version C (tabular DP). Phase 3 target is Version B (model-free RL).
+- Course dates: Phase 2 due `February 23, 2026`; Phase 3 presentation `March 13, 2026`; final submission `March 16, 2026`.
 
-## 🚩 Phase 1: Infrastructure & Data Foundations
-**Goal:** Establish the ground truth data, build the simulation engine, and define the MDP.
+## Architecture Decision (Shared Core + DP + RL)
+Decision:
+- Keep one package `src/discount_engine/` with three subpackages:
+- `core/`: shared state/parameter models, demand equations, transition primitives, calibration loaders.
+- `dp/`: discretization, transition enumeration, value-iteration solvers, DP policy utilities.
+- `rl/`: Gymnasium environment, rollouts, RL baselines/training/evaluation helpers.
 
-### 1.1 Data Pipeline (The "Truth")
-- [x] **Ingest:** Load Dunnhumby `transaction_data` and `product` CSVs.
-- [x] **Filter:** Isolate a single high-frequency product category (e.g., "Soft Drinks") to ensure sufficient signal.
-- [x] **User Sequencing:** Aggregate raw logs into `UserSequence` objects (Time-series of Price Paid vs. Discount).
-- [x] **Elasticity Modeling:** Fit a simple demand curve to the real data to extract `beta` (price sensitivity) and `alpha` (memory decay) parameters.
+Rationale:
+- Prevent duplicated business logic between DP and RL.
+- Keep one source of truth for calibrated parameters and transition equations.
+- Make ownership boundaries explicit for implementation and testing.
 
-#### 1.1.1 Alpha Estimation Experiments ✅
-- [x] Baseline EWMA memory model
-- [x] Discount shock (deviation from mean)
-- [x] Varying reference_days
-- [x] Alternative memory models (fixed window, linear decay, binary, cumulative)
-- [x] Lagged features comparison
+Migration plan:
+- [ ] Introduce `src/discount_engine/core`, `src/discount_engine/dp`, `src/discount_engine/rl`.
+- [ ] Move files from legacy folders (`agents`, `simulators`, `envs`) into new ownership boundaries.
+- [ ] Maintain temporary compatibility imports while scripts/tests migrate.
+- [ ] Remove compatibility shims once CI and docs fully reference new paths.
 
-**Finding:** Memory features provide <3% MSE improvement. Weak signal.
+Exit criteria:
+- [ ] No DP-only logic lives under `rl/`; no RL-only logic lives under `dp/`.
+- [ ] Shared math/params used by both tracks lives only under `core/`.
 
-#### 1.1.2 Feature Engineering ✅
-- [x] **Household effects:** Purchase frequency, avg spend (+16% improvement)
-- [x] **Product effects:** Price vs avg, typical quantity (+8% improvement)
-- [x] **Temporal effects:** Day of week, purchase number (+1% improvement)
-- [x] **Combined:** All features together (+21% improvement)
+## Data Pipeline Ownership (Download + Preprocess)
+Canonical locations:
+- [ ] Raw data acquisition scripts: `scripts/data/download_dataset.py`.
+- [ ] Preprocessing and panel-build scripts: `scripts/data/preprocess_data.py`.
+- [ ] Calibration scripts producing MDP params: `scripts/data/calibrate_mdp_params.py`.
+- [ ] Raw dumps in `data/raw/`, cleaned feature/panel artifacts in `data/processed/`.
 
-**Finding:** Household features dominate. Include in simulator.
+Compatibility path during migration:
+- [ ] Keep wrappers at legacy entrypoints (`scripts/download_dataset.py`, `scripts/preprocess_data.py`) until references are updated.
 
-#### 1.1.3 Model Structure Experiments ✅
-- [x] **Customer segmentation:** K-means + per-segment OLS (+3-4%)
-- [x] **Gradient Boosting:** Full GBM (+15-20%, but 100x slower)
-- [x] **Neural Network (MLP):** Various architectures (+5-10%, 10x slower)
-- [x] **Polynomial OLS:** Second-order terms (+3-4%, same speed)
+## Data Calibration Plan (Dataset -> MDP Parameters)
+Goal: compute proposal parameters from Dunnhumby data before solver training.
 
-**Finding:** Non-linear models improve accuracy but hurt speed. OLS + features + polynomial terms is best tradeoff.
+- [ ] Build household-time-category panel from transactions (`y_{h,t,j}`, unit price, promo flags, quantity, recency).
+- [ ] Select `N` tractable product categories for Version C/B and publish mapping table.
+- [ ] Estimate category shelf prices `p_j` as robust non-promo unit-price statistics (median + IQR checks).
+- [ ] Fit purchase model on panel:
+- [ ] target `y_{h,t,j} = 1` if category `j` purchased at `(h,t)`,
+- [ ] logistic with category intercepts plus deal and recency terms,
+- [ ] estimate memory decay `alpha` by grid search maximizing validation log-likelihood.
+- [ ] Map fitted coefficients to MDP params:
+- [ ] `beta_0^{(j)}` from category intercepts,
+- [ ] `beta_p` from deal coefficient,
+- [ ] `beta_l` from recency coefficient sign-adjusted to proposal convention,
+- [ ] `beta_m` from memory/deal coefficient relationship.
+- [ ] Calibrate churn dynamics:
+- [ ] define operational churn event (example: no purchases for `H` consecutive periods),
+- [ ] estimate churn hazard by inactivity level and fit `eta` and `c_0` initialization to match observed hazard curves.
+- [ ] Persist finalized params to versioned artifact (`data/processed/mdp_params.yaml` or JSON) used by DP and RL configs.
 
-### 1.2 The Simulator (The "World") ← NEXT
-- [ ] **Simulated User:** Implement `src/discount_engine/simulators/customer.py` using parameters from 1.1.
-- [ ] **Validation:** Verify that the Simulated User "addicts" correctly (i.e., purchase probability drops after repeated discounts are removed).
+Exit criteria:
+- [ ] Parameter estimation script is reproducible end-to-end from raw/processed data.
+- [ ] Validation metrics and diagnostic plots are stored (purchase calibration + churn calibration).
+- [ ] One parameter artifact feeds both Version C and Version B implementations.
 
-### 1.3 Environment Setup (The "Interface")
-- [ ] **Gym Wrapper:** Implement `MarketEnv(gym.Env)`.
-- [ ] **Spaces:** Define `MultiDiscrete` action space (Buy/No-Buy, Discount Depth) and `Box` observation space.
-- [ ] **Unit Tests:** Verify `env.reset()` and `env.step()` adhere to the Gymnasium API standard.
+## Phase 0: Alignment and Interface Freeze
+Goal: align repository interfaces and naming to the approved MDP before writing core logic.
 
----
+- [ ] Freeze parameter schema (`delta`, `gamma`, `beta_0`, `beta_p`, `beta_m`, `beta_l`, `alpha`, `eta`, per-category prices).
+- [ ] Confirm shared action convention: `a=0` for no promotion, `a=i` for category `i`.
+- [ ] Define two state representations:
+- [ ] `ContinuousState` for Version B (`c`, vector `m`, vector `l`).
+- [ ] `DiscreteState` for Version C (binned churn/memory/recency).
+- [ ] Document transition/reward equations in code-facing form in `specs/`.
+- [ ] Add acceptance checks for probability mass and terminal-state behavior.
+- [ ] Finalize ownership mapping across `core/`, `dp/`, and `rl/` modules.
+- [ ] Finalize script namespaces: `scripts/data/*`, `scripts/dp_*`, `scripts/rl_*`.
 
-## 🚩 Phase 2: Dynamic Programming (The Theoretical Solver)
-**Goal:** Solve the problem mathematically using "God Mode" (perfect knowledge of dynamics) on a simplified state space.
+Exit criteria:
+- [ ] One source-of-truth spec for state/action/transition/reward used by DP and RL paths.
+- [ ] No remaining roadmap references to variable discount depth actions.
+- [ ] Updated `specs/00_repo_map.md` reflecting new module and script layout.
 
-### 2.1 Discretization
-- [ ] **State Binning:** Reduce continuous `ReferencePrice` to 5 discrete buckets (Very Low -> Very High).
-- [ ] **Transition Matrix:** Explicitly calculate the probability matrix $P(s' | s, a)$ using the Simulator logic.
+## Phase 1: Version C Core Dynamics (Initial Implementation Phase 1)
+Goal: implement the simplified MDP dynamics needed for exact DP.
 
-### 2.2 The Solver
-- [ ] **Value Iteration:** Implement standard VI to find the optimal policy $\pi^*$.
-- [ ] **Visual Analysis:** Generate a heatmap of the Value Function $V(s)$. *Expectation: The value should be lower in "addicted" states.*
+- [ ] Implement independent logistic purchase model per category in `src/discount_engine/core/demand.py`.
+- [ ] Implement deterministic memory and recency updates from proposal equations.
+- [ ] Implement churn transition: churn only on zero-purchase branch, with probability `c_t`.
+- [ ] Enumerate purchase subsets (`2^N`, with `N <= 5`) to build transition outcomes.
+- [ ] Implement expected immediate reward as realized revenue from purchased subset at effective prices.
+- [ ] Add unit tests for:
+- [ ] valid probability range and normalization,
+- [ ] monotonic effects (higher memory lowers full-price demand),
+- [ ] absorbing terminal behavior.
 
----
+Exit criteria:
+- [ ] Transition kernel and reward computation pass tests for `N=2` and `N=5`.
+- [ ] Numerical sanity checks match Phase 1 worked-example directionality.
 
-## 🚩 Phase 3: Deep Reinforcement Learning (The Production Agent)
-**Goal:** Train a model-free agent that learns the optimal policy without knowing the user's hidden physics.
+## Phase 2: Version C Solver and Diagnostics (Initial Implementation Phase 2)
+Goal: produce the Phase 2 DP deliverable with interpretable policy outputs.
 
-### 3.1 The Baselines (The "Control Group")
-- [ ] **Random Agent:** Benchmark random actions.
-- [ ] **Constant Policy:** Benchmark "Always 10% Off" and "Never Discount."
-- [ ] **Rule-Based:** Benchmark a simple heuristic (e.g., "Discount if inactive for 7 days").
+- [ ] Implement Value Iteration / policy extraction in `scripts/dp_solve.py` (or `src/discount_engine/dp/` solver module).
+- [ ] Generate policy tables over discretized states.
+- [ ] Generate value diagnostics (state-value summaries and at least one heatmap/table view).
+- [ ] Add reproducible script entry point with config-driven parameters.
+- [ ] Add tests for convergence behavior and deterministic outputs under fixed seeds/configs.
 
-### 3.2 The RL Agent
-- [ ] **Implementation:** specific PPO or DQN agent using `Stable Baselines3`.
-- [ ] **Reward Shaping:** Introduce the **Engagement Bonus ($\lambda$)** to solve reward sparsity.
-- [ ] **Training Loop:** Train on the Simulator for 1M+ timesteps.
+Version C DP test plan (required before Phase 2 sign-off):
+- [ ] `test_dp_transitions.py`: every `(s, a)` transition distribution sums to 1 within tolerance and has no negative probabilities.
+- [ ] `test_dp_terminal.py`: terminal state is absorbing and yields zero reward for all actions.
+- [ ] `test_dp_bellman_backup.py`: Bellman update on a tiny hand-checked fixture matches analytical value.
+- [ ] `test_dp_value_iteration.py`: Value Iteration converges under configured `epsilon` and `max_iters`.
+- [ ] `test_dp_policy_sanity.py`: policy reacts correctly to canonical states (for example, high-memory state should not always favor repeated discounting).
+- [ ] `test_dp_regression.py`: selected state values/policy actions match stored snapshot under fixed parameter artifact.
+- [ ] `test_dp_script_e2e.py`: command-line DP solve runs end-to-end and writes expected artifacts.
 
-### 3.3 Evaluation & Tuning
-- [ ] **Hyperparameter Sweep:** Tune `learning_rate`, `gamma`, and `ent_coef` (exploration).
-- [ ] **A/B Simulation:** Run the trained Policy vs. the Baseline on 1,000 unseen synthetic users.
-- [ ] **Business Metrics:** Report `Total Revenue`, `Conversion Rate`, and `Margin` (not just "Mean Reward").
+Test artifacts and thresholds:
+- [ ] Store deterministic fixture parameters in `tests/fixtures/dp_params_small.yaml`.
+- [ ] Store expected outputs (`V`, policy for selected states) as versioned test snapshots.
+- [ ] Enforce numerical tolerances explicitly (`atol`, `rtol`) in all DP numerical tests.
 
----
+Exit criteria:
+- [ ] End-to-end DP run completes from command line.
+- [ ] Artifacts show policy trade-off between short-term revenue and future addiction/churn risk.
+- [ ] Phase 2 report inputs are generated and versioned.
+- [ ] All Version C DP tests pass in CI.
 
-## 🚩 Phase 4: Final Reporting & Polish
-**Goal:** Synthesize findings into the final course deliverable.
+## Phase 3: Version B Simulator + Gym Environment (Initial Implementation Phase 3)
+Goal: build the continuous simulator/env needed for model-free RL.
 
-- [ ] **Code Cleanup:** Add docstrings and type hints to `src/`.
-- [ ] **Visualization:** Create standard plots:
-    - *Learning Curves (Reward vs. Time)*
-    - *Policy Inspection (What does the agent do when Ref Price is high?)*
-    - *Pareto Frontier (Revenue vs. Conversion)*
-- [ ] **Final Paper:** Draft the report detailing the "Discount Addiction" constraint and the impact of Reward Shaping.
+- [ ] Implement continuous-state simulator using same equations (without exposing transition probabilities to agent).
+- [ ] Implement Gymnasium-compatible environment with observation `[c, m_1..m_N, l_1..l_N]` and action space `{0..N}`.
+- [ ] Implement baseline policies: random, never-promote, heuristic recency-triggered promotion.
+- [ ] Add rollout tooling in `scripts/rl_run_simulation.py` and evaluation harness in `scripts/rl_evaluate.py`.
+- [ ] Add integration tests for `reset`, `step`, episode termination, and reward accounting.
+
+Simulation step contract (per action `a_t`):
+- [ ] Apply action to effective prices (`a_t=0` no promo, `a_t=i` discount category `i` by `delta`).
+- [ ] Compute per-category purchase probabilities from calibrated params and current state.
+- [ ] Sample purchase outcomes (independent Bernoulli by category for Version B).
+- [ ] Compute immediate reward from realized purchased basket at effective prices.
+- [ ] Update memory and recency deterministically from action and purchases.
+- [ ] Update churn propensity from any-purchase vs no-purchase indicator.
+- [ ] Sample churn on zero-purchase branch; if churn, transition to absorbing terminal state.
+- [ ] Return `(next_obs, reward, terminated, truncated, info)` with diagnostic fields (`p_buy`, purchases, churn_prob).
+
+Exit criteria:
+- [ ] Environment produces stable rollouts and supports baseline evaluation.
+- [ ] Baseline metrics are logged for future RL comparisons.
+
+## Phase 4: RL Training, Evaluation, and Final Packaging
+Goal: train and evaluate a model-free agent for Version B and finalize deliverables.
+
+- [ ] Train RL agent (initial default: PPO or DQN based on environment diagnostics).
+- [ ] Compare against baselines on revenue, promotion frequency, retention proxy, and margin impact.
+- [ ] Run targeted hyperparameter sweeps and ablations.
+- [ ] Produce final plots/tables and integrate results into report/presentation material.
+- [ ] Final code cleanup and reproducibility pass.
+
+Exit criteria:
+- [ ] RL policy outperforms non-learning baselines on agreed metrics.
+- [ ] Final paper/presentation artifacts are reproducible from repository scripts.
+
+## Immediate Next Sequence (Pending Approval)
+1. Execute Data Calibration Plan and publish first parameter artifact.
+2. Execute Phase 0 interface freeze against calibrated parameter schema.
+3. Start Phase 1 implementation with tests-first for transition and churn logic.
+4. Move to Phase 2 only after Phase 1 exit criteria are met.
+
+## Documentation Synchronization Rule
+- [ ] After each completed implementation step, update `specs/00_repo_map.md` in the same change set.
+- [ ] Treat stale repo-map docs as a blocker for marking a phase step complete.
+
+## Script Naming Convention
+- [ ] Adopt `dp_` prefix for DP-focused executable scripts in `scripts/` for clear discoverability.
+- [ ] Target names: `scripts/dp_solve.py`, `scripts/dp_validate.py`, `scripts/dp_evaluate.py`.
+- [ ] Adopt `rl_` prefix for RL-focused executable scripts.
+- [ ] Target names: `scripts/rl_train.py`, `scripts/rl_run_simulation.py`, `scripts/rl_evaluate.py`.
+- [ ] Keep temporary compatibility wrappers if needed (for example, `scripts/solve_dp.py` delegating to `scripts/dp_solve.py`) until docs/CI are updated.

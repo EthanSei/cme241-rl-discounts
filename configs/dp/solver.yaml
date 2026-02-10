@@ -1,0 +1,4 @@
+# DP solver configuration (v2 scaffold)
+gamma: 0.99
+epsilon: 1.0e-8
+max_iters: 10000

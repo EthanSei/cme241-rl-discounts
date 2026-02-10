@@ -1,0 +1,4 @@
+# Data calibration configuration (v2 scaffold)
+raw_dir: data/raw
+processed_dir: data/processed
+params_output: data/processed/mdp_params.yaml

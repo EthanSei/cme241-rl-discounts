@@ -18,10 +18,10 @@ Ran `make sims` with 500 customers:
 - Fresh customers maintain baseline 50% probability at full price
 - Results saved to `data/processed/simulation_validation.json`
 
-### Files Added/Modified
-- `src/discount_engine/simulators/customer.py` - SimulatedCustomer class
-- `tests/unit/test_customer.py` - 10 TDD tests
-- `scripts/run_simulation.py` - Validation script
+### Files Added/Modified (legacy paths; superseded by v2 structure)
+- `src/discount_engine/core/dynamics.py` - SimulatedCustomer/dynamics scaffold
+- `tests/rl/test_rl_env.py` - RL environment test scaffold
+- `scripts/rl_run_simulation.py` - Simulation script scaffold
 
 ---
 

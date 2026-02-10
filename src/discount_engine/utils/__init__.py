@@ -1,1 +1,1 @@
-"""Shared utility functions."""
+"""Utilities shared across scripts and packages."""
