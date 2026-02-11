@@ -2,3 +2,8 @@
 raw_dir: data/raw
 processed_dir: data/processed
 params_output: data/processed/mdp_params.yaml
+n_categories: 5
+category_column: commodity_desc
+delta: 0.30
+gamma: 0.99
+inactivity_horizon: 28

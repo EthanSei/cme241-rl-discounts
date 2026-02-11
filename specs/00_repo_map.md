@@ -19,7 +19,8 @@ cme241-rl-discounts
 ├── notebooks/
 │   ├── 01_data_analysis.ipynb
 │   ├── 02_dp_solution.ipynb
-│   └── 03_rl_results.ipynb
+│   ├── 03_rl_results.ipynb
+│   └── 04_calibration_walkthrough.ipynb
 ├── scripts/
 │   ├── data/
 │   │   ├── calibrate_mdp_params.py
@@ -72,8 +73,11 @@ cme241-rl-discounts
 │   ├── __init__.py
 │   ├── conftest.py
 │   ├── core/
+│   │   ├── test_calibration.py
 │   │   ├── test_demand.py
-│   │   └── test_dynamics.py
+│   │   ├── test_dynamics.py
+│   │   ├── test_io.py
+│   │   └── test_params.py
 │   ├── dp/
 │   │   ├── test_dp_bellman_backup.py
 │   │   ├── test_dp_policy_sanity.py
