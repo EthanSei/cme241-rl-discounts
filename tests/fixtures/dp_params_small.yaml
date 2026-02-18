@@ -1,4 +1,18 @@
-# Deterministic tiny fixture for DP tests (v2 scaffold)
-N: 2
+# Deterministic fixture for DP tests
 delta: 0.30
-gamma: 0.99
+gamma: 0.96
+alpha: 0.90
+beta_p: 0.50
+beta_l: 0.30
+beta_m: 1.40
+eta: 0.05
+c0: 0.20
+categories:
+  - name: A
+    price: 2.40
+    beta_0: 0.25
+  - name: B
+    price: 1.80
+    beta_0: 0.05
+metadata:
+  source: test-fixture

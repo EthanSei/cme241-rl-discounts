@@ -107,10 +107,23 @@ def test_calibrate_mdp_params_writes_expected_yaml(tmp_path: Path) -> None:
     assert parsed["beta_m"] > 0.0
     assert 0.0 <= parsed["alpha"] <= 1.0
     assert 0.0 < parsed["c0"] < 1.0
+    assert parsed["c0"] <= 0.5
     assert parsed["metadata"]["alpha_selection_metric"] == "validation_nll"
     assert parsed["metadata"]["validation_fraction"] == 0.2
     assert parsed["metadata"]["deal_signal_mode"] == "positive_centered_anomaly"
     assert parsed["metadata"]["memory_mode"] == "gap_aware_ewma"
+    churn_bucketing = parsed["metadata"]["churn_bucketing"]
+    assert churn_bucketing["n_buckets"] == 3
+    assert len(churn_bucketing["grid"]) == 3
+    assert len(churn_bucketing["labels"]) == 3
+    assert len(churn_bucketing["buckets"]) == 3
+    assert all(0.049 <= float(v) <= 0.501 for v in churn_bucketing["grid"])
+    assert all(
+        float(churn_bucketing["grid"][i]) < float(churn_bucketing["grid"][i + 1])
+        for i in range(2)
+    )
+    assert parsed["metadata"]["churn_stats"]["raw_c0"] >= parsed["c0"]
+    assert parsed["metadata"]["churn_stats"]["effective_c0"] == parsed["c0"]
     assert parsed["metadata"]["fit_neg_log_likelihood"] == parsed["metadata"][
         "fit_val_neg_log_likelihood"
     ]
@@ -215,3 +228,32 @@ def test_build_purchase_panel_deal_signal_not_perfect_label_proxy(tmp_path: Path
     has_signal = panel["deal_signal"] > 1e-12
     assert bool((has_signal & (panel["purchased"] == 1)).any())
     assert bool((has_signal & (panel["purchased"] == 0)).any())
+
+
+def test_data_driven_churn_discretization_damps_centers_to_dp_range() -> None:
+    runs = np.concatenate(
+        [
+            np.zeros(200, dtype=float),
+            np.full(200, 10.0, dtype=float),
+            np.full(200, 100.0, dtype=float),
+        ]
+    )
+    out = calib._build_data_driven_churn_discretization(
+        runs=runs,
+        c0=0.9,
+        eta=0.01,
+        n_buckets=3,
+    )
+
+    grid = [float(v) for v in out["grid"]]
+    assert len(grid) == 3
+    assert np.isclose(grid[0], 0.05)
+    assert np.isclose(grid[-1], 0.5)
+    assert grid[0] < grid[1] < grid[2]
+
+    buckets = out["buckets"]
+    assert len(buckets) == 3
+    assert all("raw_churn_center" in row for row in buckets)
+    assert all("churn_center" in row for row in buckets)
+    assert buckets[0]["run_max_inclusive"] < buckets[1]["run_min_inclusive"]
+    assert buckets[1]["run_max_inclusive"] < buckets[2]["run_min_inclusive"]

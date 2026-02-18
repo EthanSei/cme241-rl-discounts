@@ -7,6 +7,7 @@ tools/
 # Data files (download via scripts/download_dataset.py)
 data/raw/
 data/processed/
+runs/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

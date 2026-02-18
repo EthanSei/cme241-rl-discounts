@@ -20,7 +20,10 @@ cme241-rl-discounts
 │   ├── 01_data_analysis.ipynb
 │   ├── 02_dp_solution.ipynb
 │   ├── 03_rl_results.ipynb
-│   └── 04_calibration_walkthrough.ipynb
+│   ├── 04_calibration_walkthrough.ipynb
+│   └── dp_walkthrough.ipynb
+├── runs/
+│   └── dp/
 ├── scripts/
 │   ├── data/
 │   │   ├── calibrate_mdp_params.py
@@ -53,8 +56,10 @@ cme241-rl-discounts
 │       │   └── types.py
 │       ├── dp/
 │       │   ├── __init__.py
+│       │   ├── artifacts.py
 │       │   ├── discretization.py
 │       │   ├── policy.py
+│       │   ├── quality_checks.py
 │       │   ├── transitions.py
 │       │   └── value_iteration.py
 │       ├── rl/
@@ -80,7 +85,9 @@ cme241-rl-discounts
 │   │   └── test_params.py
 │   ├── dp/
 │   │   ├── test_dp_bellman_backup.py
+│   │   ├── test_dp_phase1_exit.py
 │   │   ├── test_dp_policy_sanity.py
+│   │   ├── test_dp_quality_checks.py
 │   │   ├── test_dp_regression.py
 │   │   ├── test_dp_script_e2e.py
 │   │   ├── test_dp_terminal.py
@@ -105,8 +112,10 @@ cme241-rl-discounts
 - `src/discount_engine/core/params.py`
 - `src/discount_engine/core/types.py`
 - `src/discount_engine/dp/__init__.py`
+- `src/discount_engine/dp/artifacts.py`
 - `src/discount_engine/dp/discretization.py`
 - `src/discount_engine/dp/policy.py`
+- `src/discount_engine/dp/quality_checks.py`
 - `src/discount_engine/dp/transitions.py`
 - `src/discount_engine/dp/value_iteration.py`
 - `src/discount_engine/rl/__init__.py`

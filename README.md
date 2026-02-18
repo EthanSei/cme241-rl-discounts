@@ -59,7 +59,19 @@ python scripts/rl_train.py
 ### Running the DP Solver
 
 ```bash
-python scripts/dp_solve.py
+python scripts/dp_solve.py --n-categories 3 --tag phase2
+```
+
+### Validating a DP Run
+
+```bash
+python scripts/dp_validate.py --run-dir runs/dp/<timestamp_tag>
+```
+
+### Evaluating a DP Run
+
+```bash
+python scripts/dp_evaluate.py --run-dir runs/dp/<timestamp_tag>
 ```
 
 ### Evaluating a Trained Model
@@ -89,6 +101,21 @@ python scripts/rl_evaluate.py
 ### Parameter Artifact
 Calibrated parameter artifact target path:
 - `data/processed/mdp_params.yaml`
+
+### DP Run Artifacts
+DP solve/evaluate/validate outputs are written to:
+- `runs/dp/<timestamp>_<tag>/`
+
+Each run contains:
+- `config_resolved.yaml`
+- `values.json`
+- `policy.json`
+- `q_values.json`
+- `solver_metrics.json`
+- `policy_table.csv`
+- `quality_report.json`
+- `quality_warnings.json`
+- `evaluation_summary.json`
 
 ## Development
 

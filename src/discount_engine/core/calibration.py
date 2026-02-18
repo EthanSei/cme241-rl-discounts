@@ -25,6 +25,7 @@ from discount_engine.utils.io import load_processed_tables
 
 
 _TIME_COLUMNS = ("day", "week_no")
+_DP_CHURN_CENTER_RANGE = (0.05, 0.50)
 
 
 @dataclass(frozen=True)
@@ -167,6 +168,7 @@ def calibrate_mdp_params(
             "selected_categories": list(selected_categories),
             "inactivity_horizon": int(inactivity_horizon),
             "churn_stats": churn_stats,
+            "churn_bucketing": churn_stats.get("discretization", {}),
             "fit_neg_log_likelihood": float(fitted.neg_log_likelihood),
             "fit_train_neg_log_likelihood": float(fitted.train_neg_log_likelihood),
             "fit_val_neg_log_likelihood": float(fitted.val_neg_log_likelihood),
@@ -790,7 +792,25 @@ def _calibrate_churn_dynamics(
                 churn_events += 1
 
     if not pairs:
-        return 0.05, 0.05, {"churn_rate_at_horizon": 0.0}
+        default_c0 = _DP_CHURN_CENTER_RANGE[0]
+        default_eta = 0.05
+        discretization = _build_data_driven_churn_discretization(
+            runs=np.array([0.0, 1.0, 2.0], dtype=float),
+            c0=default_c0,
+            eta=default_eta,
+            n_buckets=3,
+            center_range=_DP_CHURN_CENTER_RANGE,
+        )
+        return (
+            float(discretization["grid"][0]),
+            default_eta,
+            {
+                "churn_rate_at_horizon": 0.0,
+                "raw_c0": default_c0,
+                "raw_eta": default_eta,
+                "discretization": discretization,
+            },
+        )
 
     run_df = pd.DataFrame(pairs, columns=["run", "next_no_purchase"])
     run_df["run_bucket"] = run_df["run"].clip(upper=30)
@@ -816,7 +836,196 @@ def _calibrate_churn_dynamics(
         eta = 0.05
 
     churn_rate_at_horizon = churn_events / total_points if total_points > 0 else 0.0
-    return c0, eta, {"churn_rate_at_horizon": float(churn_rate_at_horizon)}
+    discretization = _build_data_driven_churn_discretization(
+        runs=run_df["run"].to_numpy(dtype=float),
+        c0=c0,
+        eta=eta,
+        n_buckets=3,
+        center_range=_DP_CHURN_CENTER_RANGE,
+    )
+    effective_c0 = float(discretization["grid"][0])
+    return effective_c0, eta, {
+        "churn_rate_at_horizon": float(churn_rate_at_horizon),
+        "raw_c0": float(c0),
+        "raw_eta": float(eta),
+        "effective_c0": effective_c0,
+        "discretization": discretization,
+    }
+
+
+def _build_data_driven_churn_discretization(
+    *,
+    runs: np.ndarray,
+    c0: float,
+    eta: float,
+    n_buckets: int,
+    center_range: tuple[float, float] = _DP_CHURN_CENTER_RANGE,
+) -> dict[str, Any]:
+    """Build interpretable churn buckets from empirical inactivity runs."""
+    if n_buckets <= 0:
+        raise ValueError("n_buckets must be positive.")
+    if len(center_range) != 2:
+        raise ValueError("center_range must be a (low, high) tuple.")
+    center_low, center_high = float(center_range[0]), float(center_range[1])
+    if not (0.0 <= center_low < center_high <= 1.0):
+        raise ValueError("center_range must satisfy 0.0 <= low < high <= 1.0.")
+
+    run_values = np.asarray(runs, dtype=float)
+    run_values = run_values[np.isfinite(run_values)]
+    if run_values.size == 0:
+        run_values = np.array([0.0], dtype=float)
+    run_values = np.maximum(run_values, 0.0)
+
+    if n_buckets == 1:
+        bucket_arrays = [run_values]
+        run_bounds: list[tuple[int, int | None]] = [
+            (0, int(np.max(run_values))),
+        ]
+    else:
+        quantile_points = np.linspace(0.0, 1.0, n_buckets + 1)[1:-1]
+        cutoffs = [
+            int(np.floor(float(np.quantile(run_values, q))))
+            for q in quantile_points
+        ]
+        bucket_ids = np.digitize(run_values, bins=cutoffs, right=True)
+        bucket_arrays = [run_values[bucket_ids == idx] for idx in range(n_buckets)]
+        if any(arr.size == 0 for arr in bucket_arrays):
+            # Fallback for degenerate ties at quantile boundaries.
+            bucket_arrays = np.array_split(np.sort(run_values), n_buckets)
+            run_bounds = []
+            for idx, arr in enumerate(bucket_arrays):
+                lower = int(arr.min()) if idx == 0 else int(bucket_arrays[idx - 1].max()) + 1
+                upper = int(arr.max()) if idx < n_buckets - 1 else None
+                run_bounds.append((lower, upper))
+        else:
+            run_bounds = []
+            for idx in range(n_buckets):
+                if idx == 0:
+                    lower = 0
+                    upper: int | None = cutoffs[0]
+                elif idx < n_buckets - 1:
+                    lower = cutoffs[idx - 1] + 1
+                    upper = cutoffs[idx]
+                else:
+                    lower = cutoffs[-1] + 1
+                    upper = None
+                run_bounds.append((lower, upper))
+
+    n_effective = len(bucket_arrays)
+    label_pool = _churn_bucket_label_pool(n_effective)
+
+    bucket_rows: list[dict[str, Any]] = []
+    centers: list[float] = []
+    for idx, arr in enumerate(bucket_arrays):
+        run_min, run_max = run_bounds[idx]
+        if run_max is None:
+            run_max = int(arr.max())
+        run_median = float(np.median(arr))
+        raw_churn_center = float(np.clip(c0 + eta * run_median, 0.0, 1.0))
+        centers.append(raw_churn_center)
+        bucket_rows.append(
+            {
+                "index": idx,
+                "label": label_pool[idx],
+                "run_min_inclusive": run_min,
+                "run_max_inclusive": run_max,
+                "run_median": run_median,
+                "raw_churn_center": raw_churn_center,
+                "share": float(arr.size / run_values.size),
+            }
+        )
+
+    churn_grid = _damp_centers_to_range(
+        centers=centers,
+        target_low=center_low,
+        target_high=center_high,
+    )
+    for idx, center in enumerate(churn_grid):
+        bucket_rows[idx]["churn_center"] = float(center)
+
+    return {
+        "mode": "run_quantile_v2_damped",
+        "n_buckets": n_effective,
+        "center_range": [center_low, center_high],
+        "grid": [float(x) for x in churn_grid],
+        "labels": [row["label"] for row in bucket_rows],
+        "buckets": bucket_rows,
+    }
+
+
+def _churn_bucket_label_pool(n_buckets: int) -> list[str]:
+    if n_buckets == 3:
+        return [
+            "Engaged (low churn risk)",
+            "At-Risk (medium churn risk)",
+            "Lapsing (high churn risk)",
+        ]
+    if n_buckets == 2:
+        return [
+            "Engaged (lower churn risk)",
+            "Lapsing (higher churn risk)",
+        ]
+    return [f"Churn Segment {idx + 1}" for idx in range(n_buckets)]
+
+
+def _strictly_increasing_grid(
+    values: list[float],
+    *,
+    lower: float,
+    upper: float,
+    min_gap: float,
+) -> tuple[float, ...]:
+    arr = np.clip(np.asarray(values, dtype=float), lower, upper)
+    if arr.size == 0:
+        return tuple()
+    if arr.size == 1:
+        return (float(arr[0]),)
+
+    for idx in range(arr.size - 2, -1, -1):
+        if arr[idx] >= arr[idx + 1]:
+            arr[idx] = arr[idx + 1] - min_gap
+
+    if arr[0] < lower:
+        arr = arr + (lower - arr[0])
+    if arr[-1] > upper:
+        arr = arr - (arr[-1] - upper)
+
+    if np.any(np.diff(arr) <= 0.0):
+        arr = np.linspace(
+            max(lower, float(np.min(arr))),
+            min(upper, float(np.max(arr))),
+            arr.size,
+        )
+    return tuple(float(x) for x in arr)
+
+
+def _damp_centers_to_range(
+    *,
+    centers: list[float],
+    target_low: float,
+    target_high: float,
+) -> tuple[float, ...]:
+    arr = np.asarray(centers, dtype=float)
+    if arr.size == 0:
+        return tuple()
+    if arr.size == 1:
+        midpoint = 0.5 * (target_low + target_high)
+        return (float(midpoint),)
+
+    raw_min = float(np.min(arr))
+    raw_max = float(np.max(arr))
+    if raw_max - raw_min <= 1e-12:
+        normalized = np.linspace(0.0, 1.0, arr.size)
+    else:
+        normalized = (arr - raw_min) / (raw_max - raw_min)
+
+    damped = target_low + normalized * (target_high - target_low)
+    return _strictly_increasing_grid(
+        damped.tolist(),
+        lower=target_low,
+        upper=target_high,
+        min_gap=1e-4,
+    )
 
 
 def _require_columns(df: pd.DataFrame, required: set[str], table_name: str) -> None:

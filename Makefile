@@ -1,4 +1,4 @@
-.PHONY: install test lint clean help load preprocess sims
+.PHONY: install test lint clean help load preprocess calibrate sims
 
 help:
 	@echo "Available commands:"
@@ -8,6 +8,7 @@ help:
 	@echo "  make clean      - Remove build artifacts"
 	@echo "  make load       - Download Kaggle dataset to data/raw/"
 	@echo "  make preprocess - Build processed data, sequences, features"
+	@echo "  make calibrate  - Calibrate MDP params from configs/data/calibration.yaml"
 	@echo "  make sims       - Run customer simulation validation"
 
 install:
@@ -26,6 +27,18 @@ load:
 
 preprocess:
 	python scripts/data/preprocess_data.py $(if $(PROCESSED_FORMAT),--format $(PROCESSED_FORMAT),)
+
+calibrate:
+	python scripts/data/calibrate_mdp_params.py \
+		--config $(if $(CALIBRATION_CONFIG),$(CALIBRATION_CONFIG),configs/data/calibration.yaml) \
+		$(if $(PROCESSED_DIR),--processed-dir $(PROCESSED_DIR),) \
+		$(if $(PARAMS_OUTPUT),--output-path $(PARAMS_OUTPUT),) \
+		$(if $(N_CATEGORIES),--n-categories $(N_CATEGORIES),) \
+		$(if $(CATEGORY_COLUMN),--category-column $(CATEGORY_COLUMN),) \
+		$(if $(DELTA),--delta $(DELTA),) \
+		$(if $(GAMMA),--gamma $(GAMMA),) \
+		$(if $(INACTIVITY_HORIZON),--inactivity-horizon $(INACTIVITY_HORIZON),) \
+		$(if $(VALIDATION_FRACTION),--validation-fraction $(VALIDATION_FRACTION),)
 
 sims:
 	python scripts/rl_run_simulation.py

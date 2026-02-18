@@ -1,11 +1,43 @@
 # Active Brief
 
 ## Status
-- Planning mode after Phase 1 proposal finalization.
-- No implementation work starts until this plan is approved.
+- Architecture migration is complete at the file-tree level (`core/dp/rl`, script namespaces, test layout).
+- Data calibration artifact is available at `data/processed/mdp_params.yaml` (default Phase 2 runs use `N=3`).
+- Phase 2 implementation is complete and audited: solver, scripts, quality checks, walkthrough analysis, and DP test coverage are in place.
+- DP defaults now use data-driven low-risk discretization centers from constrained sweep artifacts:
+- memory buckets `(0.0, 0.9, 2.0)` and recency buckets `(2.0, 12.0)` (`runs/dp/grid_search/20260218_034643_constrained_40/`).
+- Latest default Phase 2 run is validated at `runs/dp/20260218_054956_phase2_polish_final/` (hard checks pass; one conceptual warning remains in `quality_warnings.json`).
 
 ## Active Objective
-Align near-term implementation to the approved MDP and deliver Version C (DP) first.
+Keep Phase 2 (Version C tabular DP) stable and documented while preparing the Phase 3 handoff.
+
+## Version C Contract (Authoritative for Phase 2)
+- Categories supported up to `N <= 5` for Version C, with default `N=3` for routine Phase 2 runs.
+- Discrete DP state:
+- `c_t` in calibrated finite churn buckets (legacy 2-bucket support plus metadata-driven 3-bucket runs),
+- `m_t^(i) in {Low, Med, High}`,
+- `l_t^(i) in {Recent, Stale}`,
+- absorbing churn terminal state.
+- Action set is fixed-depth promotion choice: `A = {0, 1, ..., N}`, `0` means no promotion.
+- Transition model is tabular and analytically computed from independent logistic per-category purchases.
+- Exact Value Iteration is the Phase 2 solution method.
+
+## Current Implementation Snapshot
+- Implemented:
+- repository structure matches `specs/repo_map_v2.md`,
+- `specs/00_repo_map.md` matches current tree,
+- DP script/module/test filenames exist.
+- `src/discount_engine/dp/transitions.py` and `src/discount_engine/dp/discretization.py` contain production Phase 2 logic, including interpolation-based bucket distributions for smoother transitions.
+- DP discretization defaults are centralized in `configs/dp/solver.yaml` and applied by `scripts/dp_solve.py`:
+- `MEMORY_GRID=(0.0, 0.9, 2.0)`, `RECENCY_GRID=(2.0, 12.0)`.
+- `tests/dp/test_dp_transitions.py` and `tests/dp/test_dp_terminal.py` are now real behavior tests and passing.
+- Implemented (new in this revision):
+- `src/discount_engine/dp/value_iteration.py` now contains exact tabular Value Iteration.
+- `src/discount_engine/dp/policy.py` now provides greedy extraction and reporting helpers.
+- `src/discount_engine/dp/quality_checks.py` now provides hard checks plus conceptual diagnostics.
+- `scripts/dp_{solve,validate,evaluate}.py` now execute end-to-end using `runs/dp/<timestamp>_<tag>/`.
+- `scripts/dp_evaluate.py` now preserves metadata-driven churn labels when regenerating summaries from run artifacts.
+- `scripts/dp_{validate,evaluate}.py` now apply run-resolved solver bucket grids from `config_resolved.yaml` to keep checks/summaries consistent with solved artifacts.
 
 ## Architecture Decision (Approved Direction)
 - Use one package with three subpackages:
@@ -39,7 +71,7 @@ Align near-term implementation to the approved MDP and deliver Version C (DP) fi
 
 ## Parameter Estimation Plan (from Dunnhumby)
 - Build a household-time-category panel with purchase indicator, unit price, promo flag, and recency.
-- Choose tractable categories (`N <= 5` for Version C) and fix crosswalk used by all configs.
+- Choose tractable categories (default `N=3`, supported up to `N <= 5` for Version C) and fix crosswalk used by all configs.
 - Estimate `p_j` from non-promo unit-price distributions per category.
 - Fit purchase probability model:
 - logistic target: purchased vs not purchased per category-time row,
@@ -52,6 +84,10 @@ Align near-term implementation to the approved MDP and deliver Version C (DP) fi
 - fit hazard curve vs inactivity and calibrate `eta` and initial `c`.
 - Persist final parameter artifact for both DP and RL paths (`data/processed/mdp_params.yaml`).
 
+Current calibration status:
+- Completed and aligned to Phase 2 scope (`N=3` categories present in `selected_categories`).
+- Default config and Make target now support config-driven calibration runs.
+
 ## Environment Action Simulation Contract
 For each step with action `a_t`:
 1. Convert action to effective prices with fixed `delta`.
@@ -63,25 +99,17 @@ For each step with action `a_t`:
 7. Apply churn transition on no-purchase branch; if churn, move to terminal state.
 8. Return standard env outputs plus diagnostics in `info` (buy probs, purchases, churn prob).
 
-## Initial Implementation Phases to Approve
-1. Phase 0: Spec and Interface Freeze
-- Freeze parameter schema and action/state conventions.
-- Lock module ownership for demand, transitions, and env interface.
-- Add acceptance checks for probability normalization and terminal behavior.
+## Phase 2 Execution Record (Completed)
+1. Replaced placeholder DP tests (`bellman`, `value_iteration`, `policy_sanity`, `regression`, `script_e2e`) with behavior tests.
+2. Implemented Value Iteration and policy extraction with deterministic convergence controls.
+3. Replaced DP script scaffolds with functional CLI flows that write versioned artifacts.
+4. Ran DP validation suites and generated report-ready diagnostics (policy tables + value summaries/heatmap).
+5. Completed DP policy analysis and documented findings before RL handoff.
 
-2. Phase 1: Version C Dynamics Core
-- Implement demand and transition equations for discretized state space.
-- Implement purchase-subset enumeration (`2^N`, `N <= 5`) and churn branching.
-- Add unit tests for monotonicity and transition correctness.
-
-3. Phase 2: Version C DP Solver
-- Implement Value Iteration policy solve path.
-- Generate policy/value artifacts for report-ready analysis.
-- Add reproducible script and config flow.
-
-4. Phase 3: Version B Env Scaffold
-- Implement continuous simulator + Gymnasium environment.
-- Add baselines and rollout evaluation harness for later RL training.
+## DP-to-RL Gate (Professor Feedback)
+- DP implementation supports `N <= 5`; default analysis mode remains `N=3`.
+- RL work starts only after DP policy analysis is complete and reviewed.
+- Version B RL algorithm direction is discrete-action; use `DQN` as the primary method.
 
 ## Version C (DP) Validation Tests
 - `test_dp_transitions.py`: probability mass conservation and non-negativity for all `(s, a)`.
@@ -93,7 +121,8 @@ For each step with action `a_t`:
 - `test_dp_script_e2e.py`: end-to-end CLI solve and artifact generation.
 
 Acceptance gate for DP phase:
-- All DP validation tests must pass locally and in CI before Phase 2 is considered complete.
+- All DP validation tests pass locally and in CI.
+- DP scripts run without scaffold placeholder output and produce expected artifacts.
 
 ## Script Naming Convention Decision
 - Use `dp_` prefix for DP scripts in `scripts/` to separate solver tooling from RL/eval tooling.
@@ -107,15 +136,21 @@ Acceptance gate for DP phase:
 - After each completed implementation step, update `specs/00_repo_map.md` to reflect actual repository state.
 - A step is not marked complete until code changes and repo-map updates are both committed.
 
-## Ordered First Work Queue (after approval)
-1. Create `core/dp/rl` package scaffolding and update `specs/00_repo_map.md`.
-2. Create `scripts/data/*` scaffolding and keep legacy wrappers if needed.
-3. Implement calibration script to produce first `mdp_params` artifact from dataset.
-4. Define shared dataclasses/interfaces for continuous and discrete states in `core/`.
-5. Implement demand model and deterministic state update functions in `core/`.
-6. Integrate DP transitions/solver in `dp/`, add DP tests/snapshots, then run Value Iteration end-to-end.
+## Immediate Queue (Now)
+1. Keep regression snapshots and walkthrough outputs synced whenever solver defaults or calibration metadata changes.
+2. Review conceptual warnings (`quality_warnings.json`) as part of DP sign-off before RL experiments.
+3. Keep docs (`active_brief`, roadmap, repo map) synced with implementation status.
+4. Start Phase 3 only after explicit DP policy sign-off.
+
+## Phase 2 Start Checklist
+- [x] Repository layout and script namespaces are in place.
+- [x] Calibrated MDP parameter artifact exists and is aligned to `N=3`.
+- [x] DP scope support (`N <= 5`, default `N=3`) is documented across roadmap/brief.
+- [x] Begin test-first implementation in `tests/dp/` and `src/discount_engine/dp/`.
 
 ## Blockers and Decisions Already Resolved
 - Discount depth is fixed; action does not include discount magnitude.
 - DP target uses small `N` with full transition enumeration.
 - RL target uses continuous state and unknown transitions to the agent.
+- DP implementation supports up to `N <= 5`, with `N=3` as the standard Phase 2 default.
+- RL method choice for Version B is discrete-action (`DQN` primary).
