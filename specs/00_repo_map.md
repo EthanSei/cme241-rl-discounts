@@ -41,7 +41,9 @@ cme241-rl-discounts
 │   ├── 02_roadmap.md
 │   ├── 03_memory.md
 │   ├── 04_alpha_experiments.md
+│   ├── 05_staple_daily_resolution_findings.md
 │   ├── active_brief.md
+│   ├── phase2_audit.md
 │   ├── project_guidelines.md
 │   └── repo_map_v2.md
 ├── src/
@@ -79,6 +81,7 @@ cme241-rl-discounts
 │   ├── conftest.py
 │   ├── core/
 │   │   ├── test_calibration.py
+│   │   ├── test_calibration_weekly.py
 │   │   ├── test_demand.py
 │   │   ├── test_dynamics.py
 │   │   ├── test_io.py

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from itertools import product
 
 from discount_engine.core.demand import DemandInputs, logistic_purchase_probability
-from discount_engine.core.params import MDPParams
+from discount_engine.core.params import CategoryParams, MDPParams
 from discount_engine.core.types import DiscreteState
 from discount_engine.dp.discretization import (
     bucketize_churn_distribution,
@@ -117,13 +117,20 @@ def _compute_buy_probs_and_prices(
     decoded = decode_state(state, churn_grid=churn_grid)
     buy_probs: list[float] = []
     effective_prices: list[float] = []
+    deal_signal_mode = _resolve_deal_signal_mode(params)
 
     for idx, category in enumerate(params.categories):
         promoted = action == (idx + 1)
         eff_price = category.price * (1.0 - params.delta) if promoted else category.price
         effective_prices.append(eff_price)
 
-        deal_signal = category.price - eff_price
+        deal_signal = _promotion_deal_signal(
+            category=category,
+            promoted=promoted,
+            effective_price=eff_price,
+            params=params,
+            deal_signal_mode=deal_signal_mode,
+        )
         p_buy = logistic_purchase_probability(
             DemandInputs(
                 baseline_logit=category.beta_0,
@@ -138,6 +145,52 @@ def _compute_buy_probs_and_prices(
         buy_probs.append(p_buy)
 
     return buy_probs, effective_prices
+
+
+def _resolve_deal_signal_mode(params: MDPParams) -> str:
+    metadata = params.metadata if isinstance(params.metadata, dict) else {}
+    raw_mode = metadata.get("deal_signal_mode")
+    # Backward-compatible default for older artifacts.
+    if raw_mode is None:
+        return "price_delta_dollars"
+    mode = str(raw_mode)
+    supported = {
+        "positive_centered_anomaly",
+        "binary_delta_indicator",
+        "price_delta_dollars",
+    }
+    if mode not in supported:
+        raise ValueError(
+            f"Unsupported deal_signal_mode={mode!r} in params metadata. "
+            f"Expected one of {sorted(supported)}."
+        )
+    return mode
+
+
+def _promotion_deal_signal(
+    *,
+    category: CategoryParams,
+    promoted: bool,
+    effective_price: float,
+    params: MDPParams,
+    deal_signal_mode: str,
+) -> float:
+    if not promoted:
+        return 0.0
+    if deal_signal_mode == "binary_delta_indicator":
+        return float(params.delta)
+    if deal_signal_mode == "price_delta_dollars":
+        # Equivalent to price * delta when promoted.
+        return float(category.price - effective_price)
+
+    # positive_centered_anomaly
+    signal = category.promotion_deal_signal
+    if signal is not None:
+        return max(0.0, float(signal))
+
+    # Fallback keeps legacy parameter files runnable even if they predate
+    # promotion_deal_signal serialization.
+    return float(category.price - effective_price)
 
 
 def _purchase_subset_probability(

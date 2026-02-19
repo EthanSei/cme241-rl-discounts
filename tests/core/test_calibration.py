@@ -9,6 +9,7 @@ import sys
 
 import numpy as np
 import pandas as pd
+import pytest
 import yaml
 
 from discount_engine.core import calibration as calib
@@ -110,7 +111,7 @@ def test_calibrate_mdp_params_writes_expected_yaml(tmp_path: Path) -> None:
     assert parsed["c0"] <= 0.5
     assert parsed["metadata"]["alpha_selection_metric"] == "validation_nll"
     assert parsed["metadata"]["validation_fraction"] == 0.2
-    assert parsed["metadata"]["deal_signal_mode"] == "positive_centered_anomaly"
+    assert parsed["metadata"]["deal_signal_mode"] == "price_delta_dollars"
     assert parsed["metadata"]["memory_mode"] == "gap_aware_ewma"
     churn_bucketing = parsed["metadata"]["churn_bucketing"]
     assert churn_bucketing["n_buckets"] == 3
@@ -131,6 +132,9 @@ def test_calibrate_mdp_params_writes_expected_yaml(tmp_path: Path) -> None:
         assert category["price"] > 0.0
         assert "beta_0" in category
         assert "name" in category
+        assert category["promotion_deal_signal"] == pytest.approx(
+            category["price"] * parsed["delta"]
+        )
 
 
 def test_calibration_script_cli_runs(tmp_path: Path) -> None:
@@ -158,6 +162,44 @@ def test_calibration_script_cli_runs(tmp_path: Path) -> None:
 
     assert result.returncode == 0, result.stderr
     assert output_path.exists()
+
+
+def test_calibrate_mdp_params_supports_explicit_deal_signal_mode(tmp_path: Path) -> None:
+    raw_dir = tmp_path / "raw"
+    processed_dir = tmp_path / "processed"
+    output_path = processed_dir / "mdp_params.yaml"
+    _write_raw_calibration_fixture(raw_dir)
+    ingest_raw_to_processed(raw_dir=raw_dir, processed_dir=processed_dir, file_format="csv")
+
+    payload = calibrate_mdp_params(
+        processed_dir=processed_dir,
+        output_path=output_path,
+        n_categories=2,
+        alpha_grid=(0.0, 0.5, 0.9),
+        deal_signal_mode="positive_centered_anomaly",
+    )
+
+    assert payload["metadata"]["deal_signal_mode"] == "positive_centered_anomaly"
+    promotion_signals = [float(row["promotion_deal_signal"]) for row in payload["categories"]]
+    assert all(signal >= 0.0 for signal in promotion_signals)
+    assert any(signal > 0.0 for signal in promotion_signals)
+
+
+def test_calibrate_mdp_params_rejects_unknown_deal_signal_mode(tmp_path: Path) -> None:
+    raw_dir = tmp_path / "raw"
+    processed_dir = tmp_path / "processed"
+    output_path = processed_dir / "mdp_params.yaml"
+    _write_raw_calibration_fixture(raw_dir)
+    ingest_raw_to_processed(raw_dir=raw_dir, processed_dir=processed_dir, file_format="csv")
+
+    with pytest.raises(ValueError, match="Unsupported deal_signal_mode"):
+        calibrate_mdp_params(
+            processed_dir=processed_dir,
+            output_path=output_path,
+            n_categories=2,
+            alpha_grid=(0.0, 0.5, 0.9),
+            deal_signal_mode="not_a_real_mode",
+        )
 
 
 def test_time_split_masks_create_forward_validation_window() -> None:

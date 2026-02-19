@@ -56,7 +56,7 @@ def test_dp_solve_script_writes_expected_run_artifacts(tmp_path: Path) -> None:
     assert config["n_categories"] == 2
     assert float(config["solver"]["gamma"]) > 0.0
     assert config["solver"]["memory_grid"] == [0.0, 0.9, 2.0]
-    assert config["solver"]["recency_grid"] == [2.0, 12.0]
+    assert config["solver"]["recency_grid"] == [1.0, 4.0]
 
     policy_header = (run_dir / "policy_table.csv").read_text().splitlines()[0]
     assert "churn_label" in policy_header

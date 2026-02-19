@@ -16,6 +16,9 @@ class CategoryParams:
     name: str
     price: float
     beta_0: float
+    # Representative deal-signal magnitude used when this category is promoted.
+    # Optional for backward compatibility with older parameter artifacts.
+    promotion_deal_signal: float | None = None
 
 
 @dataclass(frozen=True)
@@ -41,7 +44,16 @@ class MDPParams:
     def from_dict(cls, payload: dict[str, Any]) -> "MDPParams":
         """Create parameter object from a plain dict."""
         categories = tuple(
-            CategoryParams(**category_payload)
+            CategoryParams(
+                name=str(category_payload["name"]),
+                price=float(category_payload["price"]),
+                beta_0=float(category_payload["beta_0"]),
+                promotion_deal_signal=(
+                    float(category_payload["promotion_deal_signal"])
+                    if category_payload.get("promotion_deal_signal") is not None
+                    else None
+                ),
+            )
             for category_payload in payload["categories"]
         )
         metadata = payload.get("metadata", {})

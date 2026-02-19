@@ -18,6 +18,8 @@ Read in this exact order.
 
 2. `src/discount_engine/core/params.py`
 - Defines calibrated parameter schema (`MDPParams`, `CategoryParams`).
+- Includes deal-signal contract fields (`metadata.deal_signal_mode`,
+  `CategoryParams.promotion_deal_signal`).
 - Includes load/save helpers used by scripts and tests.
 
 3. `src/discount_engine/core/demand.py`
@@ -34,6 +36,8 @@ Read in this exact order.
 
 5. `src/discount_engine/dp/transitions.py`
 - Implements full transition kernel for one `(state, action)`.
+- Applies deal-signal contract from params metadata:
+  `price_delta_dollars`, `binary_delta_indicator`, or `positive_centered_anomaly`.
 - Key flow inside `enumerate_transition_distribution(...)`:
 - compute purchase probabilities,
 - enumerate all purchase subsets (`2^N`),

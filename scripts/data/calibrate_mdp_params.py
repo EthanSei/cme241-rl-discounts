@@ -39,7 +39,34 @@ def main() -> int:
     parser.add_argument("--category-column", default=None)
     parser.add_argument("--delta", type=float, default=None)
     parser.add_argument("--gamma", type=float, default=None)
+    parser.add_argument(
+        "--deal-signal-mode",
+        default=None,
+        help=(
+            "Deal-signal contract for calibration and downstream DP. "
+            "Supported: positive_centered_anomaly, binary_delta_indicator, "
+            "price_delta_dollars."
+        ),
+    )
     parser.add_argument("--inactivity-horizon", type=int, default=None)
+    parser.add_argument(
+        "--selected-categories",
+        nargs="+",
+        default=None,
+        help="Override automatic category selection with explicit names.",
+    )
+    parser.add_argument(
+        "--time-resolution",
+        default=None,
+        choices=["daily", "weekly"],
+        help="Time resolution for panel construction (daily or weekly).",
+    )
+    parser.add_argument(
+        "--beta-m-floor",
+        type=float,
+        default=None,
+        help="Impose a minimum beta_m (memory penalty). Set to null/omit to use fitted value.",
+    )
     parser.add_argument(
         "--validation-fraction",
         type=float,
@@ -62,6 +89,10 @@ def main() -> int:
     category_column = str(args.category_column or config.get("category_column", "commodity_desc"))
     delta = float(args.delta if args.delta is not None else config.get("delta", 0.30))
     gamma = float(args.gamma if args.gamma is not None else config.get("gamma", 0.99))
+    deal_signal_mode = str(
+        args.deal_signal_mode
+        or config.get("deal_signal_mode", "price_delta_dollars")
+    )
     inactivity_horizon = int(
         args.inactivity_horizon
         if args.inactivity_horizon is not None
@@ -72,6 +103,17 @@ def main() -> int:
         if args.validation_fraction is not None
         else config.get("validation_fraction", 0.20)
     )
+    selected_categories: list[str] | None = (
+        args.selected_categories or config.get("selected_categories")
+    )
+    time_resolution = str(
+        args.time_resolution or config.get("time_resolution", "daily")
+    )
+    beta_m_floor_raw = (
+        args.beta_m_floor if args.beta_m_floor is not None
+        else config.get("beta_m_floor")
+    )
+    beta_m_floor: float | None = float(beta_m_floor_raw) if beta_m_floor_raw is not None else None
 
     calibrate_mdp_params(
         processed_dir=processed_dir,
@@ -80,8 +122,12 @@ def main() -> int:
         category_column=category_column,
         delta=delta,
         gamma=gamma,
+        deal_signal_mode=deal_signal_mode,
         inactivity_horizon=inactivity_horizon,
         validation_fraction=validation_fraction,
+        selected_categories=selected_categories,
+        time_resolution=time_resolution,
+        beta_m_floor=beta_m_floor,
     )
     print(f"Wrote calibrated parameters to {output_path}.")
     return 0

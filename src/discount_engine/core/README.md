@@ -5,7 +5,7 @@ This document explains how calibration works in `src/discount_engine/core/calibr
 ## Purpose
 Calibration estimates the MDP parameters used by DP and RL:
 - Global: `alpha`, `beta_p`, `beta_l`, `beta_m`, `eta`, `c0`, `delta`, `gamma`
-- Per-category: `beta_0` intercept and representative category `price`
+- Per-category: `beta_0`, representative `price`, and `promotion_deal_signal`
 
 The public API is:
 - `calibrate_mdp_params(...)`
@@ -30,9 +30,9 @@ Expected key columns:
 3. Compute transaction-level `unit_price` and bounded `discount_rate`.
 4. Select top `n_categories` by transaction volume.
 5. Build a dense household-time-category panel.
-6. Fit purchase model over an `alpha` grid and select alpha by validation NLL.
-7. Estimate churn parameters (`c0`, `eta`) from inactivity dynamics.
-8. Estimate representative category prices.
+6. Apply configured deal-signal contract (`deal_signal_mode`).
+7. Fit purchase model over an `alpha` grid and select alpha by validation NLL.
+8. Estimate churn parameters (`c0`, `eta`) from inactivity dynamics.
 9. Save final parameter bundle to YAML.
 
 ## Purchase Model
@@ -67,6 +67,12 @@ Deal features are built separately from the target:
    - fallback to `discount_rate` if anomaly collapses to zero.
 
 This avoids encoding `purchased` directly inside the feature.
+
+Before fitting, calibration applies a deal-signal contract so DP and calibration
+share the same units:
+- `price_delta_dollars` (default): dollar-scale signal.
+- `binary_delta_indicator`: binary promo indicator scaled by `delta`.
+- `positive_centered_anomaly`: original centered anomaly.
 
 ## Recency and Memory Features
 ### Recency
@@ -123,6 +129,7 @@ Saved metadata includes:
   - `validation_fraction`
 - feature/memory mode tags:
   - `deal_signal_mode`
+  - `promotion_deal_signals` (category-level promoted signal values)
   - `memory_mode`
 
 ## Assumptions
@@ -140,6 +147,7 @@ Saved metadata includes:
 
 ## Relation to DP/RL Contract
 Calibration still produces the same parameter schema consumed by DP/RL:
-- `alpha`, `beta_p`, `beta_l`, `beta_m`, `eta`, `c0`, per-category `beta_0`, `price`, plus `delta`, `gamma`.
+- `alpha`, `beta_p`, `beta_l`, `beta_m`, `eta`, `c0`, per-category `beta_0`, `price`,
+  `promotion_deal_signal`, plus `delta`, `gamma`.
 
 The changes improve estimation quality and diagnostics; they do not change the DP/RL interface contract.

@@ -24,8 +24,16 @@ from discount_engine.core.params import CategoryParams, MDPParams, save_mdp_para
 from discount_engine.utils.io import load_processed_tables
 
 
-_TIME_COLUMNS = ("day", "week_no")
+_TIME_COLUMNS = ("day", "week", "week_no")
 _DP_CHURN_CENTER_RANGE = (0.05, 0.50)
+_DEAL_SIGNAL_MODE_POSITIVE_CENTERED_ANOMALY = "positive_centered_anomaly"
+_DEAL_SIGNAL_MODE_BINARY_DELTA_INDICATOR = "binary_delta_indicator"
+_DEAL_SIGNAL_MODE_PRICE_DELTA_DOLLARS = "price_delta_dollars"
+_SUPPORTED_DEAL_SIGNAL_MODES = (
+    _DEAL_SIGNAL_MODE_POSITIVE_CENTERED_ANOMALY,
+    _DEAL_SIGNAL_MODE_BINARY_DELTA_INDICATOR,
+    _DEAL_SIGNAL_MODE_PRICE_DELTA_DOLLARS,
+)
 
 
 @dataclass(frozen=True)
@@ -60,8 +68,12 @@ def calibrate_mdp_params(
     delta: float = 0.30,
     gamma: float = 0.99,
     inactivity_horizon: int = 90,
+    deal_signal_mode: str = _DEAL_SIGNAL_MODE_PRICE_DELTA_DOLLARS,
     alpha_grid: tuple[float, ...] | None = None,
     validation_fraction: float = 0.20,
+    selected_categories: list[str] | None = None,
+    time_resolution: str = "daily",
+    beta_m_floor: float | None = None,
 ) -> dict[str, Any]:
     """Calibrate and persist MDP parameters from processed data.
     """
@@ -69,6 +81,12 @@ def calibrate_mdp_params(
         raise ValueError("n_categories must be positive.")
     if not (0.0 <= validation_fraction < 1.0):
         raise ValueError("validation_fraction must satisfy 0.0 <= value < 1.0.")
+    if time_resolution not in ("daily", "weekly"):
+        raise ValueError(
+            f"Unsupported time_resolution={time_resolution!r}. "
+            "Expected 'daily' or 'weekly'."
+        )
+    _validate_deal_signal_mode(deal_signal_mode)
 
     alpha_candidates = alpha_grid or (
         0.00,
@@ -103,22 +121,65 @@ def calibrate_mdp_params(
 
     # 2) Build transaction-level features and restrict to tractable top categories.
     merged = _compute_price_and_discount_signals(merged)
-    selected_categories = _select_top_categories(
-        merged=merged,
-        category_column=category_column,
-        n_categories=n_categories,
-    )
+    if selected_categories is not None:
+        available = set(merged[category_column].unique())
+        missing = [c for c in selected_categories if c not in available]
+        if missing:
+            raise ValueError(
+                "Selected categories not found in data: " + ", ".join(missing)
+            )
+    else:
+        selected_categories = _select_top_categories(
+            merged=merged,
+            category_column=category_column,
+            n_categories=n_categories,
+        )
     merged = merged[merged[category_column].isin(selected_categories)].copy()
     if merged.empty:
         raise ValueError("No rows remain after category filtering.")
 
-    # 3) Build dense panel and fit purchase model (with validation-based alpha selection).
+    # 2b) Optionally coarsen to weekly resolution before panel construction.
+    if time_resolution == "weekly":
+        day_column = _detect_time_column(merged)
+        category_prices = _estimate_category_prices(
+            merged=merged,
+            category_column=category_column,
+            selected_categories=selected_categories,
+        )
+        merged = _coarsen_to_weekly(
+            merged, day_column=day_column, category_column=category_column,
+        )
+
+    # 3) Build representative category prices and a dense panel, then apply the
+    # configured deal-signal contract before fitting.
+    if time_resolution != "weekly":
+        category_prices = _estimate_category_prices(
+            merged=merged,
+            category_column=category_column,
+            selected_categories=selected_categories,
+        )
     time_column = _detect_time_column(merged)
     panel, category_to_idx = _build_purchase_panel(
         merged=merged,
         category_column=category_column,
         selected_categories=selected_categories,
         time_column=time_column,
+    )
+    panel = _apply_deal_signal_contract(
+        panel=panel,
+        category_column=category_column,
+        selected_categories=selected_categories,
+        category_prices=category_prices,
+        deal_signal_mode=deal_signal_mode,
+        delta=float(delta),
+    )
+    promotion_deal_signals = _estimate_category_promotion_deal_signals(
+        panel=panel,
+        category_column=category_column,
+        selected_categories=selected_categories,
+        category_prices=category_prices,
+        deal_signal_mode=deal_signal_mode,
+        delta=float(delta),
     )
 
     fitted = _fit_logistic_grid(
@@ -128,16 +189,11 @@ def calibrate_mdp_params(
         validation_fraction=validation_fraction,
     )
 
-    # 4) Calibrate churn dynamics and representative category prices.
+    # 4) Calibrate churn dynamics.
     c0, eta, churn_stats = _calibrate_churn_dynamics(
         merged=merged,
         time_column=time_column,
         inactivity_horizon=inactivity_horizon,
-    )
-    category_prices = _estimate_category_prices(
-        merged=merged,
-        category_column=category_column,
-        selected_categories=selected_categories,
     )
 
     categories = tuple(
@@ -145,6 +201,7 @@ def calibrate_mdp_params(
             name=category,
             price=float(category_prices[category]),
             beta_0=float(fitted.intercepts[category_to_idx[category]]),
+            promotion_deal_signal=float(promotion_deal_signals[category]),
         )
         for category in selected_categories
     )
@@ -156,7 +213,7 @@ def calibrate_mdp_params(
         alpha=float(fitted.alpha),
         beta_p=max(float(fitted.deal_coef), 1e-6),
         beta_l=max(float(fitted.recency_coef), 1e-6),
-        beta_m=max(float(fitted.memory_coef), 1e-6),
+        beta_m=max(float(fitted.memory_coef), beta_m_floor if beta_m_floor is not None else 1e-6),
         eta=float(eta),
         c0=float(c0),
         categories=categories,
@@ -175,8 +232,18 @@ def calibrate_mdp_params(
             "alpha_selection_metric": "validation_nll",
             "validation_fraction": float(validation_fraction),
             "discount_signal_mode": "category_time_mean",
-            "deal_signal_mode": "positive_centered_anomaly",
+            "time_resolution": time_resolution,
+            "deal_signal_mode": deal_signal_mode,
+            "promotion_deal_signals": {
+                category: float(promotion_deal_signals[category])
+                for category in selected_categories
+            },
             "memory_mode": "gap_aware_ewma",
+            "beta_m_floor": float(beta_m_floor) if beta_m_floor is not None else None,
+            "beta_m_floor_active": (
+                beta_m_floor is not None
+                and float(fitted.memory_coef) < beta_m_floor
+            ),
         },
     )
     save_mdp_params(params=params, output_path=output_path)
@@ -271,6 +338,31 @@ def _compute_price_and_discount_signals(df: pd.DataFrame) -> pd.DataFrame:
     if out.empty:
         raise ValueError("No valid rows for price/discount signals.")
     return out
+
+
+def _coarsen_to_weekly(
+    merged: pd.DataFrame,
+    day_column: str,
+    category_column: str,
+) -> pd.DataFrame:
+    """Aggregate daily transactions to weekly resolution.
+
+    Replaces the daily time column with a ``week`` column (``day // 7``).
+    Each output row represents one household-category-week triple with
+    aggregated sales, quantity, and promotion fields.
+    """
+    out = merged.copy()
+    out["week"] = out[day_column].astype(int) // 7
+
+    agg = out.groupby(
+        ["household_key", "week", category_column], as_index=False,
+    ).agg(
+        sales_value=("sales_value", "sum"),
+        quantity=("quantity", "sum"),
+        discount_rate=("discount_rate", "max"),
+        unit_price=("unit_price", "median"),
+    )
+    return agg
 
 
 def _select_top_categories(
@@ -415,6 +507,96 @@ def _build_purchase_panel(
     ).codes
     category_to_idx = {category: idx for idx, category in enumerate(selected_categories)}
     return panel, category_to_idx
+
+
+def _validate_deal_signal_mode(deal_signal_mode: str) -> None:
+    if deal_signal_mode not in _SUPPORTED_DEAL_SIGNAL_MODES:
+        raise ValueError(
+            "Unsupported deal_signal_mode="
+            f"{deal_signal_mode!r}. Expected one of {_SUPPORTED_DEAL_SIGNAL_MODES}."
+        )
+
+
+def _apply_deal_signal_contract(
+    *,
+    panel: pd.DataFrame,
+    category_column: str,
+    selected_categories: list[str],
+    category_prices: dict[str, float],
+    deal_signal_mode: str,
+    delta: float,
+) -> pd.DataFrame:
+    """Transform panel deal signal to match the configured DP demand contract."""
+    _validate_deal_signal_mode(deal_signal_mode)
+    out = panel.copy()
+    raw_deal = out["deal_signal"].to_numpy(dtype=float)
+
+    missing_prices = [category for category in selected_categories if category not in category_prices]
+    if missing_prices:
+        raise ValueError(
+            "Missing category price(s) for deal-signal contract: "
+            + ", ".join(missing_prices)
+        )
+
+    if deal_signal_mode == _DEAL_SIGNAL_MODE_POSITIVE_CENTERED_ANOMALY:
+        transformed = raw_deal
+    elif deal_signal_mode == _DEAL_SIGNAL_MODE_BINARY_DELTA_INDICATOR:
+        transformed = np.where(raw_deal > 1e-12, float(delta), 0.0)
+    else:
+        # Convert rate anomaly to dollar magnitude for each category.
+        price_series = out[category_column].map(category_prices)
+        if price_series.isna().any():
+            missing = sorted(
+                str(value)
+                for value in out.loc[price_series.isna(), category_column].dropna().unique()
+            )
+            raise ValueError(
+                "Found categories without mapped prices for dollar deal contract: "
+                + ", ".join(missing)
+            )
+        transformed = raw_deal * price_series.to_numpy(dtype=float)
+
+    out["deal_signal"] = np.clip(
+        np.nan_to_num(transformed, nan=0.0, posinf=0.0, neginf=0.0),
+        0.0,
+        np.inf,
+    )
+    return out
+
+
+def _estimate_category_promotion_deal_signals(
+    *,
+    panel: pd.DataFrame,
+    category_column: str,
+    selected_categories: list[str],
+    category_prices: dict[str, float],
+    deal_signal_mode: str,
+    delta: float,
+) -> dict[str, float]:
+    """Estimate one representative promoted deal signal per category."""
+    _validate_deal_signal_mode(deal_signal_mode)
+    if deal_signal_mode == _DEAL_SIGNAL_MODE_BINARY_DELTA_INDICATOR:
+        return {category: float(delta) for category in selected_categories}
+    if deal_signal_mode == _DEAL_SIGNAL_MODE_PRICE_DELTA_DOLLARS:
+        return {
+            category: float(category_prices[category] * delta)
+            for category in selected_categories
+        }
+
+    signals: dict[str, float] = {}
+    for category in selected_categories:
+        values = panel.loc[panel[category_column] == category, "deal_signal"].to_numpy(
+            dtype=float
+        )
+        positives = values[values > 1e-12]
+        if positives.size == 0:
+            signals[category] = 0.0
+            continue
+        representative = float(np.quantile(positives, 0.90))
+        if not np.isfinite(representative):
+            representative = 0.0
+        signals[category] = max(0.0, representative)
+    return signals
 
 
 def _compute_recency(
