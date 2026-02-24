@@ -129,7 +129,7 @@ Version C contract to implement (source: `submissions/phase1.ipynb`):
 - [x] `l_t^(i) in {Recent, Stale}`,
 - [x] plus absorbing churn terminal state.
 - [x] Default DP discretization centers are data-driven from constrained sweep artifacts:
-- [x] `MEMORY_GRID=(0.0, 0.9, 2.0)` and `RECENCY_GRID=(2.0, 12.0)` (selected via low-risk constraints in `runs/dp/grid_search/20260218_034643_constrained_40/`, exposed in `configs/dp/solver.yaml`).
+- [x] `MEMORY_GRID=(0.0, 0.9, 2.0)` and `RECENCY_GRID=(1.0, 4.0)` (selected via low-risk constraints in `runs/dp/grid_search/20260218_034643_constrained_40/`, exposed in `configs/dp/solver.yaml`).
 - [x] Keep fixed discount-depth action set `A = {0, 1, ..., N}` (`0` = no promotion).
 - [x] Compute tabular transitions analytically from the independent logistic purchase model.
 - [x] Solve for exact policy with Value Iteration.

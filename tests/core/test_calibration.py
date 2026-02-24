@@ -112,7 +112,7 @@ def test_calibrate_mdp_params_writes_expected_yaml(tmp_path: Path) -> None:
     assert parsed["metadata"]["alpha_selection_metric"] == "validation_nll"
     assert parsed["metadata"]["validation_fraction"] == 0.2
     assert parsed["metadata"]["deal_signal_mode"] == "price_delta_dollars"
-    assert parsed["metadata"]["memory_mode"] == "gap_aware_ewma"
+    assert parsed["metadata"]["memory_mode"] == "household_deal_ewma"
     churn_bucketing = parsed["metadata"]["churn_bucketing"]
     assert churn_bucketing["n_buckets"] == 3
     assert len(churn_bucketing["grid"]) == 3

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 import pytest
 import yaml
@@ -163,7 +162,7 @@ def test_weekly_calibration_produces_valid_params(tmp_path: Path) -> None:
     _write_raw_fixture(raw_dir, n_days=21)
     ingest_raw_to_processed(raw_dir=raw_dir, processed_dir=processed_dir, file_format="csv")
 
-    payload = calibrate_mdp_params(
+    calibrate_mdp_params(
         processed_dir=processed_dir,
         output_path=output_path,
         n_categories=2,
@@ -210,12 +209,12 @@ def test_beta_m_floor_overrides_fitted_value(tmp_path: Path) -> None:
         output_path=output_path,
         n_categories=2,
         alpha_grid=(0.0,),
-        beta_m_floor=0.15,
+        beta_m_floor=999.0,
     )
-    assert payload["beta_m"] >= 0.15
+    assert payload["beta_m"] >= 999.0
     parsed = yaml.safe_load(output_path.read_text())
-    assert parsed["beta_m"] >= 0.15
-    assert parsed["metadata"]["beta_m_floor"] == 0.15
+    assert parsed["beta_m"] >= 999.0
+    assert parsed["metadata"]["beta_m_floor"] == 999.0
     assert parsed["metadata"]["beta_m_floor_active"] is True
 
 
@@ -226,7 +225,7 @@ def test_beta_m_floor_none_uses_fitted(tmp_path: Path) -> None:
     _write_raw_fixture(raw_dir)
     ingest_raw_to_processed(raw_dir=raw_dir, processed_dir=processed_dir, file_format="csv")
 
-    payload = calibrate_mdp_params(
+    calibrate_mdp_params(
         processed_dir=processed_dir,
         output_path=output_path,
         n_categories=2,

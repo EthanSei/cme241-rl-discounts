@@ -8,6 +8,8 @@ from itertools import product
 from discount_engine.core.params import MDPParams
 from discount_engine.core.types import DiscreteState
 from discount_engine.dp.discretization import (
+    MEMORY_GRID,
+    RECENCY_GRID,
     enumerate_all_states,
     is_terminal_state,
     resolve_churn_grid,
@@ -276,6 +278,18 @@ def _check_bellman_residual(
         n_categories=n_categories,
         churn_grid=resolve_churn_grid(params),
     )
+    missing_states = [state for state in states if state not in values]
+    if missing_states:
+        sample = missing_states[0]
+        return CheckResult(
+            name="bellman_residual",
+            passed=False,
+            details=(
+                f"value function missing {len(missing_states)} required state(s); "
+                f"example missing state: {sample}"
+            ),
+        )
+
     residual = 0.0
     for state in states:
         bellman_value, _, _ = bellman_backup(
@@ -284,7 +298,7 @@ def _check_bellman_residual(
             params=params,
             gamma=gamma,
         )
-        residual = max(residual, abs(values.get(state, 0.0) - bellman_value))
+        residual = max(residual, abs(values[state] - bellman_value))
 
     passed = residual <= bellman_atol
     details = (
@@ -315,8 +329,8 @@ def _check_value_ordering_by_churn(
 
     comparisons = 0
     violations = 0
-    for memory in product(range(3), repeat=n_categories):
-        for recency in product(range(2), repeat=n_categories):
+    for memory in product(range(len(MEMORY_GRID)), repeat=n_categories):
+        for recency in product(range(len(RECENCY_GRID)), repeat=n_categories):
             for churn_bucket in range(n_churn_buckets - 1):
                 lower_state = DiscreteState(
                     churn_bucket=churn_bucket,

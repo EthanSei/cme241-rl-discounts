@@ -58,6 +58,7 @@ class _SequenceCache:
     ends: np.ndarray
     times: np.ndarray
     deal_signal: np.ndarray
+    memory_signal: np.ndarray
 
 
 def calibrate_mdp_params(
@@ -90,16 +91,13 @@ def calibrate_mdp_params(
 
     alpha_candidates = alpha_grid or (
         0.00,
-        0.10,
-        0.20,
         0.30,
-        0.40,
         0.50,
-        0.60,
         0.70,
-        0.80,
+        0.85,
         0.90,
         0.95,
+        0.99,
     )
 
     # 1) Load and clean source tables.
@@ -238,7 +236,7 @@ def calibrate_mdp_params(
                 category: float(promotion_deal_signals[category])
                 for category in selected_categories
             },
-            "memory_mode": "gap_aware_ewma",
+            "memory_mode": "household_deal_ewma",
             "beta_m_floor": float(beta_m_floor) if beta_m_floor is not None else None,
             "beta_m_floor_active": (
                 beta_m_floor is not None
@@ -496,6 +494,12 @@ def _build_purchase_panel(
 
     # Binary target.
     panel["purchased"] = (panel["purchased"].fillna(0) > 0).astype(int)
+
+    # Household-level deal exposure: did THIS household buy at a discount?
+    # Used for memory signal instead of ambient category-time deal rates.
+    panel["hh_bought_on_deal"] = (
+        (panel["purchased"] > 0) & (panel["household_discount_sum"] > 0.01)
+    ).astype(float)
 
     # Keep deterministic chronological order; downstream sequence code assumes this.
     panel = panel.sort_values(["household_key", category_column, time_column]).reset_index(
@@ -765,6 +769,7 @@ def _build_sequence_cache(panel: pd.DataFrame, time_column: str) -> _SequenceCac
             ends=np.array([], dtype=int),
             times=np.array([], dtype=float),
             deal_signal=np.array([], dtype=float),
+            memory_signal=np.array([], dtype=float),
         )
 
     keys = panel[["household_key", "cat_idx"]].to_numpy()
@@ -775,7 +780,14 @@ def _build_sequence_cache(panel: pd.DataFrame, time_column: str) -> _SequenceCac
 
     times = pd.to_numeric(panel[time_column], errors="coerce").to_numpy(dtype=float)
     deal_signal = panel["deal_signal"].to_numpy(dtype=float)
-    return _SequenceCache(starts=starts, ends=ends, times=times, deal_signal=deal_signal)
+    if "hh_bought_on_deal" in panel.columns:
+        memory_signal = panel["hh_bought_on_deal"].to_numpy(dtype=float)
+    else:
+        memory_signal = deal_signal
+    return _SequenceCache(
+        starts=starts, ends=ends, times=times,
+        deal_signal=deal_signal, memory_signal=memory_signal,
+    )
 
 
 def _build_time_split_masks(
@@ -851,7 +863,7 @@ def _compute_memory_feature(
             # Gap-aware decay: larger time gaps imply stronger decay.
             delta_t = max(0.0, float(current_time - prev_time))
             prev_memory = (alpha**delta_t) * prev_memory + max(
-                0.0, float(cache.deal_signal[idx - 1])
+                0.0, float(cache.memory_signal[idx - 1])
             )
             memory[idx] = prev_memory
             prev_time = current_time

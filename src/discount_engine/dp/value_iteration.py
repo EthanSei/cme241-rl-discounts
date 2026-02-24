@@ -6,7 +6,6 @@ from dataclasses import dataclass
 import math
 
 import numpy as np
-from tqdm.auto import tqdm
 
 from discount_engine.core.params import MDPParams
 from discount_engine.core.types import DiscreteState
@@ -141,16 +140,17 @@ def solve_value_iteration(
 
     iterator = range(1, config.max_iters + 1)
     show_tqdm = config.show_progress
-    progress = (
-        tqdm(
+    progress = iterator
+    if show_tqdm:
+        # Import tqdm lazily to avoid notebook-side effects when progress is disabled.
+        from tqdm.auto import tqdm
+
+        progress = tqdm(
             iterator,
             desc=config.progress_desc,
             dynamic_ncols=True,
             leave=False,
         )
-        if show_tqdm
-        else iterator
-    )
 
     for iteration in progress:
         next_values = np.zeros_like(values_vec)
@@ -229,6 +229,83 @@ def solve_value_iteration(
     )
 
 
+def evaluate_policy(
+    policy: dict[DiscreteState, int],
+    params: MDPParams,
+    config: ValueIterationConfig,
+) -> dict[DiscreteState, float]:
+    """Compute V^π(s) for a fixed policy via iterative policy evaluation.
+
+    Instead of max_a Q(s,a), this computes Q(s, π(s)) at each step,
+    giving the true long-run value of always following the given policy.
+
+    Args:
+        policy: Mapping from state to fixed action.
+        params: Calibrated MDP parameters.
+        config: Solver configuration (gamma, epsilon, max_iters).
+
+    Returns:
+        Mapping from each state to its converged V^π value.
+    """
+    config.validate()
+    n_categories = len(params.categories)
+    validate_n_categories(n_categories)
+    churn_grid = resolve_churn_grid(params)
+
+    states = enumerate_all_states(n_categories=n_categories, churn_grid=churn_grid)
+    n_states = len(states)
+    _validate_policy_map(
+        policy=policy,
+        states=states,
+        n_categories=n_categories,
+    )
+    state_to_index = {state: idx for idx, state in enumerate(states)}
+    transition_cache = _build_transition_cache(
+        states=states,
+        state_to_index=state_to_index,
+        params=params,
+    )
+    terminal_mask = np.array([is_terminal_state(state) for state in states], dtype=bool)
+
+    policy_actions = np.array([policy[state] for state in states], dtype=np.int64)
+
+    values_vec = np.zeros(n_states, dtype=np.float64)
+
+    converged = False
+    final_delta = math.inf
+
+    for _ in range(1, config.max_iters + 1):
+        next_values = np.zeros_like(values_vec)
+        max_delta = 0.0
+
+        for state_idx in range(n_states):
+            if terminal_mask[state_idx]:
+                continue
+            action = int(policy_actions[state_idx])
+            q_val = _q_from_kernel(
+                kernel=transition_cache[state_idx][action],
+                values=values_vec,
+                gamma=config.gamma,
+            )
+            next_values[state_idx] = q_val
+            max_delta = max(max_delta, abs(q_val - values_vec[state_idx]))
+
+        values_vec = next_values
+        final_delta = max_delta
+        if max_delta < config.epsilon:
+            converged = True
+            break
+
+    if not converged:
+        raise RuntimeError(
+            "Policy evaluation did not converge within max_iters "
+            f"(max_iters={config.max_iters}, epsilon={config.epsilon:.3e}, "
+            f"final_delta={final_delta:.3e})."
+        )
+
+    return {state: float(values_vec[idx]) for idx, state in enumerate(states)}
+
+
 def _build_transition_cache(
     *,
     states: tuple[DiscreteState, ...],
@@ -271,6 +348,42 @@ def _build_transition_cache(
             )
         cache.append(row)
     return cache
+
+
+def _validate_policy_map(
+    *,
+    policy: dict[DiscreteState, int],
+    states: tuple[DiscreteState, ...],
+    n_categories: int,
+) -> None:
+    state_set = set(states)
+    missing = [state for state in states if state not in policy]
+    if missing:
+        sample = missing[0]
+        raise ValueError(
+            f"Policy is missing {len(missing)} required state(s); "
+            f"example missing state: {sample}"
+        )
+
+    extra = [state for state in policy if state not in state_set]
+    if extra:
+        sample = extra[0]
+        raise ValueError(
+            f"Policy contains {len(extra)} unknown state(s); "
+            f"example unknown state: {sample}"
+        )
+
+    invalid_actions = [
+        (state, action)
+        for state, action in policy.items()
+        if action < 0 or action > n_categories
+    ]
+    if invalid_actions:
+        state, action = invalid_actions[0]
+        raise ValueError(
+            f"Invalid action {action} for state {state}; "
+            f"expected action in [0, {n_categories}]"
+        )
 
 
 def _q_from_kernel(

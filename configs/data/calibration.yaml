@@ -10,8 +10,10 @@ selected_categories:
   - FROZEN PIZZA
 delta: 0.30
 gamma: 0.99
+# Calibration uses price_delta_dollars. Production params (mdp_params.yaml)
+# use positive_centered_anomaly with product-level deal signals applied post-calibration.
 deal_signal_mode: price_delta_dollars
 time_resolution: weekly
 inactivity_horizon: 4
-# Impose minimum memory penalty. Set to null to use fitted value (sensitivity knob).
-beta_m_floor: 0.10
+# No floor — use the calibration's fitted value.
+beta_m_floor: null

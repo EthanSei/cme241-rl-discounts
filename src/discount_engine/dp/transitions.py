@@ -188,9 +188,11 @@ def _promotion_deal_signal(
     if signal is not None:
         return max(0.0, float(signal))
 
-    # Fallback keeps legacy parameter files runnable even if they predate
-    # promotion_deal_signal serialization.
-    return float(category.price - effective_price)
+    raise ValueError(
+        f"deal_signal_mode='positive_centered_anomaly' requires "
+        f"promotion_deal_signal for category {category.name!r}. "
+        f"Re-run calibration or set the field in mdp_params.yaml."
+    )
 
 
 def _purchase_subset_probability(

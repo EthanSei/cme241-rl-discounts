@@ -11,12 +11,11 @@ from typing import Iterable, Iterator
 from discount_engine.core.params import MDPParams
 from discount_engine.core.types import DiscreteState
 
-# Version C default bucket grids.
-# These defaults are data-driven from the constrained Phase 2 sweep:
-# memory=(0.0, 0.9, 2.0), recency=(2.0, 12.0).
+# Version C default bucket grids (canonical weekly-resolution values).
+# These are aligned with configs/dp/solver.yaml and the final Phase 2 run.
 CHURN_GRID: tuple[float, ...] = (0.05, 0.50)
 MEMORY_GRID: tuple[float, ...] = (0.0, 0.9, 2.0)
-RECENCY_GRID: tuple[float, ...] = (2.0, 12.0)
+RECENCY_GRID: tuple[float, ...] = (1.0, 4.0)
 
 # Global Version C feasibility bound.
 MAX_DP_CATEGORIES = 5
