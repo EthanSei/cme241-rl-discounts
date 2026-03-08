@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import torch
 
 
 class PrioritizedReplayBuffer:
@@ -12,6 +11,8 @@ class PrioritizedReplayBuffer:
     Stores (s, a, r, s', done) with per-transition priorities.
     Sampling probability is proportional to priority^alpha.
     Returns importance-sampling weights normalized so max weight = 1.
+
+    Returns numpy arrays. Callers (e.g. DQN agent) convert to tensors.
     """
 
     def __init__(self, capacity: int, alpha: float = 0.6) -> None:
@@ -40,12 +41,12 @@ class PrioritizedReplayBuffer:
     def sample(
         self, batch_size: int, beta: float = 0.4
     ) -> tuple[
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
         list[int],
     ]:
         n = len(self.buffer)
@@ -62,12 +63,12 @@ class PrioritizedReplayBuffer:
             *(self.buffer[i] for i in indices)
         )
         return (
-            torch.FloatTensor(np.array(states)),
-            torch.LongTensor(actions),
-            torch.FloatTensor(rewards),
-            torch.FloatTensor(np.array(next_states)),
-            torch.FloatTensor(dones),
-            torch.FloatTensor(weights),
+            np.array(states, dtype=np.float32),
+            np.array(actions, dtype=np.int64),
+            np.array(rewards, dtype=np.float32),
+            np.array(next_states, dtype=np.float32),
+            np.array(dones, dtype=np.float32),
+            weights.astype(np.float32),
             list(indices),
         )
 
