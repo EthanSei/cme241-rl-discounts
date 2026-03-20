@@ -19,6 +19,11 @@ class CategoryParams:
     # Representative deal-signal magnitude used when this category is promoted.
     # Optional for backward compatibility with older parameter artifacts.
     promotion_deal_signal: float | None = None
+    # Per-category overrides for global coefficients (optional).
+    # When set, these take priority over the global MDPParams values.
+    beta_m: float | None = None
+    beta_p: float | None = None
+    beta_l: float | None = None
 
 
 @dataclass(frozen=True)
@@ -51,6 +56,21 @@ class MDPParams:
                 promotion_deal_signal=(
                     float(category_payload["promotion_deal_signal"])
                     if category_payload.get("promotion_deal_signal") is not None
+                    else None
+                ),
+                beta_m=(
+                    float(category_payload["beta_m"])
+                    if category_payload.get("beta_m") is not None
+                    else None
+                ),
+                beta_p=(
+                    float(category_payload["beta_p"])
+                    if category_payload.get("beta_p") is not None
+                    else None
+                ),
+                beta_l=(
+                    float(category_payload["beta_l"])
+                    if category_payload.get("beta_l") is not None
                     else None
                 ),
             )

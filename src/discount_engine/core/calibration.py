@@ -11,6 +11,7 @@ adds safeguards against common estimation pitfalls:
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 import tqdm
@@ -666,7 +667,6 @@ def _fit_logistic_grid(
 
     best_fit: _FittedLogit | None = None
     best_selection_nll: float | None = None
-    theta_seed: np.ndarray | None = None
 
     for alpha in tqdm.tqdm(alpha_candidates, desc="Fitting logistic grid"):
         memory = _compute_memory_feature(
@@ -677,7 +677,9 @@ def _fit_logistic_grid(
         if len(memory) != len(panel_for_memory):
             raise ValueError("Memory feature length mismatch.")
 
-        # Fit on training period only.
+        # Fresh initialization for each alpha — warm-starting is invalid because
+        # _fit_logistic_once standardizes features internally, and the memory
+        # feature changes with alpha so standardization statistics differ.
         fit = _fit_logistic_once(
             y=y[train_mask],
             category_idx=cat_idx[train_mask],
@@ -686,7 +688,6 @@ def _fit_logistic_grid(
             memory=memory[train_mask],
             n_categories=len(category_to_idx),
             alpha=alpha,
-            initial_theta=theta_seed,
         )
 
         # Evaluate unregularized likelihood on train/validation windows.
@@ -727,14 +728,6 @@ def _fit_logistic_grid(
             neg_log_likelihood=selection_nll,
             train_neg_log_likelihood=train_nll,
             val_neg_log_likelihood=val_nll,
-        )
-
-        # Warm-start next alpha from this optimum.
-        theta_seed = np.concatenate(
-            [
-                fit.intercepts,
-                np.array([fit.deal_coef, fit.recency_coef, fit.memory_coef], dtype=float),
-            ]
         )
 
         if best_fit is None or best_selection_nll is None or selection_nll < best_selection_nll:
@@ -871,6 +864,19 @@ def _compute_memory_feature(
     return memory
 
 
+def _standardize(x: np.ndarray) -> tuple[np.ndarray, float, float]:
+    """Standardize to zero-mean unit-variance; returns (x_std, mean, std)."""
+    mu, sigma = float(x.mean()), float(x.std())
+    if sigma < 1e-12:
+        return x, mu, sigma
+    return (x - mu) / sigma, mu, sigma
+
+
+def _safe_rescale(coef: float, sigma: float) -> float:
+    """Rescale a standardized coefficient back to original feature scale."""
+    return coef / sigma if sigma > 1e-12 else coef
+
+
 def _fit_logistic_once(
     y: np.ndarray,
     category_idx: np.ndarray,
@@ -880,25 +886,37 @@ def _fit_logistic_once(
     n_categories: int,
     alpha: float,
     initial_theta: np.ndarray | None = None,
+    maxiter: int = 500,
 ) -> _FittedLogit:
-    """Fit one bounded logistic model for a fixed alpha value."""
+    """Fit one bounded logistic model for a fixed alpha value.
+
+    Features are internally standardized for numerical stability.
+    Regularization is scaled by 1/n so the effective penalty is comparable
+    across sample sizes.  Returned coefficients are in the original
+    (un-standardized) feature scale.
+    """
     n = len(y)
     if not (len(category_idx) == len(deal) == len(recency) == len(memory) == n):
         raise ValueError("Feature length mismatch in logistic fit.")
+
+    # Standardize continuous features for better conditioning.
+    deal_s, deal_mu, deal_sigma = _standardize(deal)
+    rec_s, rec_mu, rec_sigma = _standardize(recency)
+    mem_s, mem_mu, mem_sigma = _standardize(memory)
 
     def objective(theta: np.ndarray) -> float:
         intercepts = theta[:n_categories]
         deal_coef, recency_coef, memory_coef = theta[n_categories:]
         logits = (
             intercepts[category_idx]
-            + deal_coef * deal
-            - recency_coef * recency
-            - memory_coef * memory
+            + deal_coef * deal_s
+            - recency_coef * rec_s
+            - memory_coef * mem_s
         )
         probs = 1.0 / (1.0 + np.exp(-np.clip(logits, -40.0, 40.0)))
         eps = 1e-9
         nll = -np.sum(y * np.log(probs + eps) + (1.0 - y) * np.log(1.0 - probs + eps))
-        reg = 1e-4 * float(np.sum(theta * theta))
+        reg = (1e-4 / n) * float(np.sum(theta * theta))
         return float(nll + reg)
 
     if initial_theta is not None:
@@ -907,7 +925,7 @@ def _fit_logistic_once(
             raise ValueError("initial_theta has incompatible shape for logistic fit.")
     else:
         theta0 = np.zeros(n_categories + 3, dtype=float)
-        theta0[n_categories:] = np.array([1.0, 0.01, 0.01], dtype=float)
+        theta0[n_categories:] = np.array([0.5, 0.1, 0.1], dtype=float)
 
     # Constrain coefficients to preserve monotonic interpretation in demand:
     # higher deal -> higher purchase; longer recency/memory -> lower purchase.
@@ -917,21 +935,99 @@ def _fit_logistic_once(
         theta0,
         method="L-BFGS-B",
         bounds=bounds,
-        options={"maxiter": 120},
+        options={"maxiter": maxiter},
     )
     if not result.success:
-        raise RuntimeError(f"Logistic fit failed for alpha={alpha}: {result.message}")
+        warnings.warn(
+            f"Logistic fit did not converge for alpha={alpha}: {result.message}",
+            stacklevel=2,
+        )
 
     theta = result.x
+
+    # Rescale coefficients back to original feature scale.
+    bp_orig = _safe_rescale(float(theta[n_categories]), deal_sigma)
+    bl_orig = _safe_rescale(float(theta[n_categories + 1]), rec_sigma)
+    bm_orig = _safe_rescale(float(theta[n_categories + 2]), mem_sigma)
+
+    # Adjust intercepts for the mean shifts introduced by standardization.
+    # Original-scale model: logit = a0 + bp/σ_d·deal - bl/σ_r·rec - bm/σ_m·mem
+    # so a0_orig = a_std - bp·μ_d/σ_d + bl·μ_r/σ_r + bm·μ_m/σ_m
+    intercepts_orig = theta[:n_categories].copy()
+    intercepts_orig -= theta[n_categories] * _safe_rescale(deal_mu, deal_sigma)
+    intercepts_orig += theta[n_categories + 1] * _safe_rescale(rec_mu, rec_sigma)
+    intercepts_orig += theta[n_categories + 2] * _safe_rescale(mem_mu, mem_sigma)
+
+    # Compute unregularized NLL so callers get values comparable to evaluate_nll.
+    pure_nll = _evaluate_neg_log_likelihood(
+        y, category_idx, deal, recency, memory,
+        intercepts_orig, bp_orig, bl_orig, bm_orig,
+    )
+
     return _FittedLogit(
         alpha=float(alpha),
-        intercepts=theta[:n_categories].copy(),
-        deal_coef=float(theta[n_categories]),
-        recency_coef=float(theta[n_categories + 1]),
-        memory_coef=float(theta[n_categories + 2]),
-        neg_log_likelihood=float(result.fun),
-        train_neg_log_likelihood=float(result.fun),
-        val_neg_log_likelihood=float(result.fun),
+        intercepts=intercepts_orig,
+        deal_coef=bp_orig,
+        recency_coef=bl_orig,
+        memory_coef=bm_orig,
+        neg_log_likelihood=pure_nll,
+        train_neg_log_likelihood=pure_nll,
+        val_neg_log_likelihood=pure_nll,
+    )
+
+
+def fit_logistic(
+    y: np.ndarray,
+    cat_idx: np.ndarray,
+    deal: np.ndarray,
+    recency: np.ndarray,
+    memory: np.ndarray,
+    n_cats: int,
+    initial_theta: np.ndarray | None = None,
+    maxiter: int = 500,
+    alpha: float = 0.0,
+) -> tuple[np.ndarray, float, float, float, float]:
+    """Public convenience wrapper around ``_fit_logistic_once``.
+
+    Returns ``(intercepts, deal_coef, recency_coef, memory_coef, nll)`` as a
+    plain tuple for easy unpacking in notebooks and scripts.
+    """
+    fit = _fit_logistic_once(
+        y=y,
+        category_idx=cat_idx,
+        deal=deal,
+        recency=recency,
+        memory=memory,
+        n_categories=n_cats,
+        alpha=alpha,
+        initial_theta=initial_theta,
+        maxiter=maxiter,
+    )
+    return fit.intercepts, fit.deal_coef, fit.recency_coef, fit.memory_coef, fit.neg_log_likelihood
+
+
+def evaluate_nll(
+    y: np.ndarray,
+    cat_idx: np.ndarray,
+    deal: np.ndarray,
+    recency: np.ndarray,
+    memory: np.ndarray,
+    intercepts: np.ndarray,
+    deal_coef: float,
+    recency_coef: float,
+    memory_coef: float,
+) -> float:
+    """Public alias for ``_evaluate_neg_log_likelihood``."""
+    return _evaluate_neg_log_likelihood(
+        y=y,
+        category_idx=cat_idx,
+        deal=deal,
+        recency=recency,
+        memory=memory,
+        intercepts=intercepts,
+        deal_coef=deal_coef,
+        recency_coef=recency_coef,
+        memory_coef=memory_coef,
     )
 
 

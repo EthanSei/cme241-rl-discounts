@@ -137,9 +137,9 @@ def _compute_buy_probs_and_prices(
                 deal_signal=deal_signal,
                 recency_value=decoded.purchase_recency[idx],
                 memory_value=decoded.discount_memory[idx],
-                beta_p=params.beta_p,
-                beta_l=params.beta_l,
-                beta_m=params.beta_m,
+                beta_p=category.beta_p if category.beta_p is not None else params.beta_p,
+                beta_l=category.beta_l if category.beta_l is not None else params.beta_l,
+                beta_m=category.beta_m if category.beta_m is not None else params.beta_m,
             )
         )
         buy_probs.append(p_buy)
@@ -195,6 +195,23 @@ def _promotion_deal_signal(
     )
 
 
+def _memory_bump(
+    params: MDPParams,
+    category_idx: int,
+    promoted: bool,
+    deal_signal_mode: str,
+) -> float:
+    """Memory accumulation per promotion, in the same units as calibration."""
+    if not promoted:
+        return 0.0
+    category = params.categories[category_idx]
+    if category.promotion_deal_signal is not None:
+        return float(category.promotion_deal_signal)
+    if deal_signal_mode == "price_delta_dollars":
+        return float(category.price * params.delta)
+    return float(params.delta)
+
+
 def _purchase_subset_probability(
     purchases: tuple[bool, ...], buy_probs: list[float]
 ) -> float:
@@ -217,9 +234,10 @@ def _next_non_terminal_distribution(
 
     next_memory_dists: list[tuple[tuple[int, float], ...]] = []
     next_recency_dists: list[tuple[tuple[int, float], ...]] = []
+    deal_signal_mode = _resolve_deal_signal_mode(params)
     for idx in range(len(params.categories)):
         promoted = action == (idx + 1)
-        promo_bump = params.delta if promoted else 0.0
+        promo_bump = _memory_bump(params, idx, promoted, deal_signal_mode)
         mem_val = (params.alpha * decoded.discount_memory[idx]) + promo_bump
         next_memory_dists.append(bucketize_memory_distribution(mem_val))
 

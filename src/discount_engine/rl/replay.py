@@ -8,19 +8,34 @@ import numpy as np
 class PrioritizedReplayBuffer:
     """Proportional PER (Schaul et al., 2016).
 
-    Stores (s, a, r, s', done) with per-transition priorities.
+    Stores (s, a, r, s', done) in pre-allocated numpy arrays for fast sampling.
     Sampling probability is proportional to priority^alpha.
     Returns importance-sampling weights normalized so max weight = 1.
 
     Returns numpy arrays. Callers (e.g. DQN agent) convert to tensors.
     """
 
-    def __init__(self, capacity: int, alpha: float = 0.6) -> None:
+    def __init__(
+        self,
+        capacity: int,
+        obs_dim: int,
+        alpha: float = 0.6,
+        rng: np.random.Generator | None = None,
+    ) -> None:
         self.capacity = capacity
         self.alpha = alpha
-        self.buffer: list[tuple] = []
+        self.rng = rng if rng is not None else np.random.default_rng()
+
+        # Pre-allocated storage
+        self.states = np.zeros((capacity, obs_dim), dtype=np.float32)
+        self.actions = np.zeros(capacity, dtype=np.int64)
+        self.rewards = np.zeros(capacity, dtype=np.float32)
+        self.next_states = np.zeros((capacity, obs_dim), dtype=np.float32)
+        self.dones = np.zeros(capacity, dtype=np.float32)
+
         self.priorities = np.zeros(capacity, dtype=np.float64)
         self.pos = 0
+        self.size = 0
         self.max_priority = 1.0
 
     def push(
@@ -29,14 +44,19 @@ class PrioritizedReplayBuffer:
         action: int,
         reward: float,
         next_state: np.ndarray,
-        done: bool,
+        done: float,
     ) -> None:
-        if len(self.buffer) < self.capacity:
-            self.buffer.append((state, action, reward, next_state, done))
-        else:
-            self.buffer[self.pos] = (state, action, reward, next_state, done)
+        self.states[self.pos] = state
+        self.actions[self.pos] = action
+        self.rewards[self.pos] = reward
+        self.next_states[self.pos] = next_state
+        self.dones[self.pos] = done
         self.priorities[self.pos] = self.max_priority
         self.pos = (self.pos + 1) % self.capacity
+        self.size = min(self.size + 1, self.capacity)
+        # Recompute max_priority on wrap-around to prevent stale inflation
+        if self.pos == 0 and self.size == self.capacity:
+            self.recompute_max_priority()
 
     def sample(
         self, batch_size: int, beta: float = 0.4
@@ -47,35 +67,43 @@ class PrioritizedReplayBuffer:
         np.ndarray,
         np.ndarray,
         np.ndarray,
-        list[int],
+        np.ndarray,
     ]:
-        n = len(self.buffer)
+        n = self.size
         priors = self.priorities[:n] ** self.alpha
-        probs = priors / priors.sum()
+        total = priors.sum()
+        if total == 0:
+            probs = np.ones(n) / n
+        else:
+            probs = priors / total
 
-        indices = np.random.choice(n, size=batch_size, p=probs)
+        indices = self.rng.choice(n, size=batch_size, p=probs)
 
-        # Importance-sampling weights, normalized so max = 1
-        weights = (n * probs[indices]) ** (-beta)
-        weights = weights / weights.max()
+        # Importance-sampling weights in log-space to avoid overflow
+        log_w = -beta * np.log(n * probs[indices] + 1e-10)
+        weights = np.exp(log_w - log_w.max())  # normalized so max = 1
 
-        states, actions, rewards, next_states, dones = zip(
-            *(self.buffer[i] for i in indices)
-        )
         return (
-            np.array(states, dtype=np.float32),
-            np.array(actions, dtype=np.int64),
-            np.array(rewards, dtype=np.float32),
-            np.array(next_states, dtype=np.float32),
-            np.array(dones, dtype=np.float32),
+            self.states[indices],
+            self.actions[indices],
+            self.rewards[indices],
+            self.next_states[indices],
+            self.dones[indices],
             weights.astype(np.float32),
-            list(indices),
+            indices,
         )
 
-    def update_priorities(self, indices: list[int], priorities: list[float]) -> None:
-        for idx, p in zip(indices, priorities):
-            self.priorities[idx] = p
-            self.max_priority = max(self.max_priority, p)
+    def update_priorities(
+        self, indices: np.ndarray, priorities: np.ndarray | list[float]
+    ) -> None:
+        p_arr = np.asarray(priorities, dtype=np.float64)
+        self.priorities[indices] = p_arr
+        self.max_priority = max(self.max_priority, float(p_arr.max()))
+
+    def recompute_max_priority(self) -> None:
+        """Recompute max_priority from active entries to prevent stale inflation."""
+        if self.size > 0:
+            self.max_priority = float(self.priorities[:self.size].max())
 
     def __len__(self) -> int:
-        return len(self.buffer)
+        return self.size
